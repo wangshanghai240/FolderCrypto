@@ -1,0 +1,28 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+
+# VS Code local history / settings
+.history/
+.vscode/
+
+# Generated build / packaging outputs (regenerated on demand)
+packages/
+preview/
+x64/
+_diag2/
+
+# Test results
+TestResults/
+*.trx
+
+# Rider
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,71 @@
+<Window
+    x:Class="FolderCrypto.App.Dialogs.PromptWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="Transparent" KeyDown="OnGridKeyDown">
+        <!-- 顶部标题栏拖拽区域（呈现 Mica，也用于拖动窗口） -->
+        <Rectangle x:Name="DragTitleBar" Height="40" VerticalAlignment="Top" HorizontalAlignment="Stretch" Fill="Transparent"/>
+
+        <!-- 可滚动表单区（内容与底部按钮同在一个 StackPanel，按钮紧随强度/提示下方，间距紧凑） -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,40,24,8">
+            <StackPanel Spacing="12" HorizontalAlignment="Stretch">
+                <!-- 标题 -->
+                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                    <FontIcon x:Name="TitleIcon" Glyph="&#xE72E;" FontSize="24"
+                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                    <TextBlock x:Name="TitleText" Text="加密" Style="{ThemeResource SubtitleTextBlockStyle}"/>
+                </StackPanel>
+
+                <TextBlock x:Name="DescText"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                <!-- 输入模式切换（仅解密时显示） -->
+                <ToggleSwitch x:Name="ModeSwitch" Header="使用恢复码"
+                              OffContent="密码" OnContent="恢复码"
+                              Toggled="OnModeToggled" Visibility="Collapsed"/>
+
+                <PasswordBox x:Name="PasswordBox" Header="密码" PasswordChanged="OnPasswordChanged" MinHeight="44"
+                             PasswordRevealMode="Peek"/>
+                <PasswordBox x:Name="ConfirmBox" Header="确认密码" PasswordChanged="OnPasswordChanged" MinHeight="44"
+                             PasswordRevealMode="Peek"/>
+                <TextBox x:Name="RecoveryBox" Header="恢复码"
+                         PlaceholderText="输入加密时展示的恢复码" Visibility="Collapsed"
+                         TextChanged="OnPasswordChanged"/>
+
+                <!-- 密码强度指示（仅加密模式） -->
+                <StackPanel x:Name="StrengthPanel" Spacing="6" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Grid Width="150">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Rectangle x:Name="Seg1" Height="4" Margin="0,0,2,0" RadiusX="2" RadiusY="2" Fill="{ThemeResource ControlFillColorSecondaryBrush}"/>
+                            <Rectangle x:Name="Seg2" Grid.Column="1" Height="4" Margin="1,0,1,0" RadiusX="2" RadiusY="2" Fill="{ThemeResource ControlFillColorSecondaryBrush}"/>
+                            <Rectangle x:Name="Seg3" Grid.Column="2" Height="4" Margin="1,0,1,0" RadiusX="2" RadiusY="2" Fill="{ThemeResource ControlFillColorSecondaryBrush}"/>
+                            <Rectangle x:Name="Seg4" Grid.Column="3" Height="4" Margin="2,0,0,0" RadiusX="2" RadiusY="2" Fill="{ThemeResource ControlFillColorSecondaryBrush}"/>
+                        </Grid>
+                        <TextBlock x:Name="StrengthText" Style="{ThemeResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="密码强度：未输入"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- 提示（一致性校验）左对齐，置于输入框下方 -->
+                <TextBlock x:Name="HintText" TextWrapping="Wrap" TextAlignment="Left" HorizontalAlignment="Left" MinHeight="18"
+                           Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
+
+                <!-- 底部按钮（紧随提示/强度下方，间距与其他元素一致） -->
+                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                    <Button Content="取消" Click="OnCancel" MinWidth="88"/>
+                    <Button x:Name="OkButton" Content="确定" Click="OnOk" MinWidth="88"
+                            Style="{ThemeResource AccentButtonStyle}" IsEnabled="False"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

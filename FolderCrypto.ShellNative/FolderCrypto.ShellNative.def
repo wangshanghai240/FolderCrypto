@@ -1,0 +1,9 @@
+; FolderCrypto.ShellNative.def : 声明 DLL 导出
+LIBRARY "FolderCrypto.ShellNative.dll"
+
+EXPORTS
+    DllGetClassObject     PRIVATE
+    DllCanUnloadNow       PRIVATE
+    DllRegisterServer     PRIVATE
+    DllUnregisterServer   PRIVATE
+    DllInstall            PRIVATE
