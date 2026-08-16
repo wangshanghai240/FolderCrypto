@@ -35,9 +35,20 @@ function Get-DirId([string]$relDir) {
     return $id
 }
 
+# Shell 集成相关文件：由固定组件 ShellIntegration 统一引用（避免同一文件被两个组件引用导致编译错误），
+# 因此在这里从自动遍历中排除。
+$excludedFiles = @(
+    'FolderCrypto.ShellNative.dll',
+    'overlay-lock.ico',
+    'unlock.ico'
+)
+
 # Collect files
 $all = @(Get-ChildItem $src -Recurse -File | ForEach-Object {
-    $_.FullName.Substring($src.Length).TrimStart('\','/')
+    $rel = $_.FullName.Substring($src.Length).TrimStart('\','/')
+    $name = Split-Path $rel -Leaf
+    if ($excludedFiles -contains $name) { return }   # 跳过由 ShellIntegration 引用的文件
+    $rel
 })
 
 # Register all directories (incl ancestors)
@@ -90,6 +101,91 @@ foreach ($rel in ($all | Sort-Object)) {
 
 $subDirs = Emit-Dirs ''
 $componentXml = $componentList -join "`n"
+
+# ---- Shell 集成固定组件：右键菜单 + 锁图标覆盖层 ----
+# 采用 WiX 原生注册表声明（不依赖运行时/自定义动作），安装与卸载均由 MSI 管理。
+# 右键菜单注册到 HKLM\Software\Classes（机器级，对所有用户生效）。
+$nativeDll    = Join-Path $src 'FolderCrypto.ShellNative.dll'
+$overlayIco   = Join-Path $src 'overlay-lock.ico'
+$unlockIco    = Join-Path $src 'unlock.ico'
+
+$overlayClsid    = 'F8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D'
+$overlayKeyName  = '  FolderCryptoLock'   # 前导空格确保覆盖层排序靠前
+
+$shellXml = @"
+    <Component Id="ShellIntegration" Directory="INSTALLFOLDER" Guid="$(New-MsiGuid 'shell-integration')">
+      <File Id="shell_native_dll"  Source="$nativeDll"  KeyPath="yes" />
+      <File Id="shell_overlay_ico" Source="$overlayIco" />
+      <File Id="shell_unlock_ico"  Source="$unlockIco" />
+
+      <!-- 右键菜单：文件级 加密/解密 -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\*\shell\FolderCryptoEncrypt">
+        <RegistryValue Type="string" Value="加密" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="加密" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_overlay_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\*\shell\FolderCryptoDecrypt">
+        <RegistryValue Type="string" Value="解密" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="解密" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_unlock_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; decrypt &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+
+      <!-- 右键菜单：文件夹级 加密/解密 -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\shell\FolderCryptoEncrypt">
+        <RegistryValue Type="string" Value="加密" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="加密" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_overlay_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\shell\FolderCryptoDecrypt">
+        <RegistryValue Type="string" Value="解密" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="解密" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_unlock_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; decrypt &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+
+      <!-- 右键菜单：文件夹空白处 加密选中 -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\Background\shell\FolderCryptoEncrypt">
+        <RegistryValue Type="string" Value="加密选中" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="加密选中" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_overlay_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt-here &quot;%V&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+
+      <!-- 锁图标覆盖层：native DLL 的 COM 类注册（HKLM\Software\Classes\CLSID） -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{$overlayClsid}">
+        <RegistryValue Type="string" Value="FolderCrypto Lock Overlay Handler" />
+        <RegistryValue Name="AppID" Type="string" Value="{$overlayClsid}" />
+        <RegistryKey Key="InprocServer32">
+          <RegistryValue Type="string" Value="[#shell_native_dll]" />
+          <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+        </RegistryKey>
+        <RegistryKey Key="TypeLib">
+          <RegistryValue Type="string" Value="{C8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
+        </RegistryKey>
+        <RegistryKey Key="Version">
+          <RegistryValue Type="string" Value="1.0" />
+        </RegistryKey>
+      </RegistryKey>
+
+      <!-- 注册 Shell 覆盖层标识 -->
+      <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\$overlayKeyName">
+        <RegistryValue Type="string" Value="{$overlayClsid}" />
+      </RegistryKey>
+    </Component>
+"@
 
 $iconPath = (Get-ChildItem $src -Filter 'LockIcon.ico' -Recurse | Select-Object -First 1).FullName
 if (-not $iconPath) { $iconPath = (Join-Path $PSScriptRoot '..\FolderCrypto.App\Assets\LockIcon.ico') }
@@ -148,6 +244,7 @@ $subDirs
       <ComponentGroupRef Id="ProductComponents" />
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="ShellIntegration" />
     </Feature>
   </Package>
 
@@ -155,6 +252,8 @@ $subDirs
     <ComponentGroup Id="ProductComponents">
 $componentXml
     </ComponentGroup>
+
+$shellXml
   </Fragment>
 </Wix>
 "@

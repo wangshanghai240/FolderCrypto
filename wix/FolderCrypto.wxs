@@ -227,6 +227,7 @@
       <ComponentGroupRef Id="ProductComponents" />
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="ShellIntegration" />
     </Feature>
   </Package>
 
@@ -1091,5 +1092,78 @@
       <File Id="file_286" Source="C:\Temp\_wix_src\zh-TW\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
     </ComponentGroup>
+
+    <Component Id="ShellIntegration" Directory="INSTALLFOLDER" Guid="{FA9F459F-EDE9-D9DB-92F7-C2EADB624713}">
+      <File Id="shell_native_dll"  Source="C:\Temp\_wix_src\FolderCrypto.ShellNative.dll"  KeyPath="yes" />
+      <File Id="shell_overlay_ico" Source="C:\Temp\_wix_src\overlay-lock.ico" />
+      <File Id="shell_unlock_ico"  Source="C:\Temp\_wix_src\unlock.ico" />
+
+      <!-- 右键菜单：文件级 加密/解密 -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\*\shell\FolderCryptoEncrypt">
+        <RegistryValue Type="string" Value="加密" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="加密" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_overlay_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\*\shell\FolderCryptoDecrypt">
+        <RegistryValue Type="string" Value="解密" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="解密" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_unlock_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; decrypt &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+
+      <!-- 右键菜单：文件夹级 加密/解密 -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\shell\FolderCryptoEncrypt">
+        <RegistryValue Type="string" Value="加密" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="加密" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_overlay_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\shell\FolderCryptoDecrypt">
+        <RegistryValue Type="string" Value="解密" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="解密" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_unlock_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; decrypt &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+
+      <!-- 右键菜单：文件夹空白处 加密选中 -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\Background\shell\FolderCryptoEncrypt">
+        <RegistryValue Type="string" Value="加密选中" />
+        <RegistryValue Name="MUIVerb" Type="string" Value="加密选中" />
+        <RegistryValue Name="Icon" Type="string" Value="[#shell_overlay_ico]" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt-here &quot;%V&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+
+      <!-- 锁图标覆盖层：native DLL 的 COM 类注册（HKLM\Software\Classes\CLSID） -->
+      <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{F8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D}">
+        <RegistryValue Type="string" Value="FolderCrypto Lock Overlay Handler" />
+        <RegistryValue Name="AppID" Type="string" Value="{F8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
+        <RegistryKey Key="InprocServer32">
+          <RegistryValue Type="string" Value="[#shell_native_dll]" />
+          <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+        </RegistryKey>
+        <RegistryKey Key="TypeLib">
+          <RegistryValue Type="string" Value="{C8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
+        </RegistryKey>
+        <RegistryKey Key="Version">
+          <RegistryValue Type="string" Value="1.0" />
+        </RegistryKey>
+      </RegistryKey>
+
+      <!-- 注册 Shell 覆盖层标识 -->
+      <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\  FolderCryptoLock">
+        <RegistryValue Type="string" Value="{F8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
+      </RegistryKey>
+    </Component>
   </Fragment>
 </Wix>

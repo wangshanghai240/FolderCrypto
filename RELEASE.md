@@ -23,12 +23,19 @@
 
 ### 1. 生成 / 确认安装包与证书
 
+> **发布策略（方案一：主推 MSI）**：本次只发布 **MSI**（含右键菜单 + 锁图标）+ 证书。MSIX 暂不随本次发布——因现有 MSIX 用**旧证书**签名，而本机证书已更换为新自签名证书，新旧证书并存会造成混淆。若后续需要 MSIX，请单独用**新证书重打包重签**（见下文"MSIX 重签说明"）。
+
 构建产物位于 `packages\`：
 
-- `packages\FolderCrypto.App_<版本>_x64.msix` —— MSIX 安装包
-- `packages\FolderCrypto.cer` —— 自签名签名证书（给用户信任用）
+- `packages\FolderCrypto-Setup-<版本>-x64.msi` —— **MSI 安装包（推荐，已内置右键菜单 + 锁图标，已签名）**
+- `packages\FolderCrypto.cer` —— 自签名签名证书（用户首次安装时信任用）
 
-MSIX 由 VS 打包（`FolderCrypto.App.Package.appxmanifest` 中的版本号决定），证书由 `FolderCrypto.pfx` 生成。每次发布新版本需重新打包生成新的 MSIX。
+- **MSI**：由 `wix\build-msi.ps1` 构建（trims App → 生成 `FolderCrypto.wxs` → `wix build` → 签名）。生成器 `wix\gen-wxs.ps1` 会注入 `ShellIntegration` 组件（右键菜单注册 + 锁图标覆盖层），安装即含右键，卸载自动清理。用法：
+  ```powershell
+  $env:FOLDCRYPTO_PFX_PASS = '你的pfx密码'   # 从 new-cert.ps1 生成时设定
+  powershell -ExecutionPolicy Bypass -File wix\build-msi.ps1
+  ```
+- **证书**：`wix\new-cert.ps1` 生成新的自签名代码签名证书并导出 pfx/cer（密码从 `FOLDCRYPTO_PFX_PASS` 读取）。`build-msi.ps1` 会自动从 pfx 读取指纹，无需手动改 `$thumb`。
 
 ### 2. 打 git tag 并推送源码
 
@@ -53,10 +60,12 @@ git push origin main --tags
 3. 选择/输入 tag `v1.0.14`
 4. 标题：`FolderCrypto 文件夹加密 v1.0.14`
 5. 正文：粘贴下文"发布模板"，可补充更新日志
-6. **附件（Attach binaries）**上传这两个文件：
-   - `packages\FolderCrypto.App_1.0.14.0_x64.msix`
-   - `packages\FolderCrypto.cer`
+6. **附件（Attach binaries）**上传以下文件：
+   - `packages\FolderCrypto-Setup-<版本>-x64.msi`（如 `FolderCrypto-Setup-1.0.14-x64.msi`）
+   - `packages\FolderCrypto.cer`（新证书；用户首次安装需信任）
 7. 点击 **Publish release**
+
+> 普通用户**只下载 MSI**（双击即装、自带右键/锁图标、无需手动信任证书）；`FolderCrypto.cer` 为自签名证书，一般仅在 Windows 提示“未知发布者”而用户选择信任时才需要。
 
 ---
 
@@ -69,7 +78,7 @@ Windows 11 文件夹/文件加密工具（WinUI 3）。支持资源管理器右�
 
 ## 下载安装
 
-下载 `FolderCrypto.App_1.0.14.0_x64.msix` 和 `FolderCrypto.cer`，然后**按下方教程安装**。
+下载 `FolderCrypto-Setup-1.0.14-x64.msi`，**双击即可安装**（首次会弹出 UAC 确认）。安装后无需任何额外配置，右键菜单与锁图标自动生效。
 
 ## 更新日志
 （在此填写）
@@ -80,8 +89,22 @@ Windows 11 文件夹/文件加密工具（WinUI 3）。支持资源管理器右�
 
 ---
 
-## 四、用户安装 MSIX 的正确方法
+## 四、用户安装 MSI 的正确方法
 
+> **推荐方式。** MSI 已内置右键菜单 + 锁图标，且已代码签名，**直接双击** `FolderCrypto-Setup-<版本>-x64.msi` 即可安装（需管理员确认 UAC）。安装后：
+>
+> - 开始菜单 / 桌面出现 **FolderCrypto** 快捷方式
+> - 资源管理器右键任意文件/文件夹出现 **加密/解密**（对所有用户生效）
+> - 已加密文件/锁定文件夹显示**锁图标**（可能需要重启资源管理器或重新登录后出现）
+>
+> 卸载：控制面板 → 程序和功能 → 找到 FolderCrypto 卸载即可（右键菜单与锁图标会被自动清理）。
+
+---
+
+## 五、用户安装 MSIX 的正确方法（备选 / 暂不随本次发布）
+
+> ⚠️ **说明**：当前仓库中的 MSIX 是用**旧证书** `E25B41DD...` 签名的，而本机签名证书已更换为新证书。为避免新旧证书并存造成混淆，**本次 Release 默认只发布 MSI**，不随附 MSIX。下述 MSIX 安装步骤仅作参考；如需发布 MSIX，请先按"MSIX 重签说明"用新证书重新打包签名。
+>
 > **MSIX 是用自签名证书签名的。** 第一次安装前，必须先在电脑上**信任签名证书**，否则会报签名错误（如 `0x800B0100` 不受信任）。不需要反复信任，首次信任一次即可。
 
 ### 方法 A：一键脚本（推荐，最简单）
@@ -118,18 +141,33 @@ FolderCrypto.Shell install "<FolderCrypto.App.exe 的完整路径>" --dll "<Fold
 
 ---
 
-## 五、关于证书（重要）
+## 六、关于证书（重要）
 
-- 目前 MSIX 使用**自签名测试证书**签名，优点是不花钱、可自己生成；缺点是：
-  - 用户首次安装需信任证书（如上教程）
-  - 部分环境 / SmartScreen 可能提示“未知发布者”
-- 若未来想让用户**双击即可安装、无证书报错**，可购买正式**代码签名证书**（类型选 Windows 桌面 / Microsoft Store 支持的 Code Signing），用 `signtool` 重新签名 MSIX 后分发，这样无需用户信任证书。
+- 本机使用**自签名代码签名证书**（`wix\new-cert.ps1` 生成），优点是不花钱、可自己生成；缺点是：
+  - MSIX 用户首次安装需信任证书
+  - 部分环境 / SmartScreen 可能提示“未知发布者”（MSI 双击安装时可能见 UAC 的“发布者: 未知”，点“是”即可）
+- 若未来想让用户**双击即可安装、无任何签名提示**，可购买正式**代码签名证书**（类型选 Windows 桌面 / Microsoft Store 支持的 Code Signing），用 `signtool` 重新签名后分发，这样无需用户信任证书。
+- ❗ **`packages\FolderCrypto.pfx` 含私钥，绝不可上传到 GitHub Release / 仓库**；仅 `FolderCrypto.cer`（公钥）可随包分发供用户信任。
+
+### 证书已更换记录（2026-08-16）
+
+- 旧证书：指纹 `E25B41DD...`，密码 `FolderCrypto_Pfx_Pass2026!`（已弃用）
+- 新证书：指纹 `DA635E69430FDBAB33423734763962CCE104D4DF`，Subject `CN=FolderCrypto 文件夹加密`，密码见 `wix\new-cert.ps1` 生成时设定的 `FOLDCRYPTO_PFX_PASS`
+- `build-msi.ps1` 现在**运行时自动从 pfx 读取指纹**，更换证书后无需手改 `$thumb`
 
 ### 历史 git 历史中的密码
 
-旧版 `wix\build-msi.ps1` 曾把 PKCS#12 私钥密码硬编码并提交进了 git 历史（现已改为从环境变量 `FOLDCRYPTO_PFX_PASS` 读取）。由于 `FolderCrypto.pfx`（私钥文件）**从未被 git 跟踪**（`packages/` 一直被忽略），攻击者虽能看到密码，但没有私钥文件也无法签名，实际风险较低。
+旧版 `wix\build-msi.ps1` 曾把 PKCS#12 私钥密码硬编码并提交进了 git 历史（现已改为从环境变量 `FOLDCRYPTO_PFX_PASS` 读取）。由于 `FolderCrypto.pfx`（私钥文件）**从未被 git 跟踪**（`packages/` 一直被忽略），攻击者虽能看到密码，但没有私钥文件也无法签名，实际风险较低。我们已经**更换了证书与密码**，进一步降低了风险。如需彻底清除历史中残留的旧密码，可重写 git 历史（`git filter-repo` 等，较复杂且会改写提交号），非必须。
 
-如需彻底止损，可任选其一：
-- **更换签名证书与密码**（推荐，彻底）：重新生成一对新证书/私钥，用新 pfx 重签 MSIX，并发布对应新 `.cer`；
-- 或重写 git 历史删除该密码（`git filter-repo` 等，操作较复杂且会改写提交号）。
+---
+
+## 七、MSIX 重签说明（需要时需要）
+
+当前仓库的旧 MSIX 用旧证书签名，且 `Package.appxmanifest` 的 `Publisher="CN=FolderCrypto"` 与新证书 Subject `CN=FolderCrypto 文件夹加密` **不完全一致**。MSIX 安装要求签名证书 CN 与 manifest Publisher **完全一致**。因此用新证书重签 MSIX 需三步：
+
+1. 把 `FolderCrypto.App\Package.appxmanifest` 的 `Publisher` 改为 `CN=FolderCrypto 文件夹加密`（与新证书 Subject 一致）
+2. 解包旧 MSIX → MakeAppx 重新打包，或直接用 VS 重新生成 MSIX 包
+3. `signtool sign` 用新 pfx 签名新 MSIX
+
+> 每次换证书后，MSIX 与 MSI 的证书必须统一，且要重新打包 MSIX（不能只改签名）。若你之后需要发布 MSIX，可回到本项目让我帮你执行上述重签流程。
 ```

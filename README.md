@@ -6,16 +6,17 @@
 
 请前往 **[Releases](https://github.com/wangshanghai240/FolderCrypto/releases)** 页面下载最新版本。
 
-需要下载两个文件：
-- `FolderCrypto.App_<版本>_x64.msix` —— 安装包
-- `FolderCrypto.cer` —— 签名证书
+### 方式一：MSI 安装包（推荐，自带右键菜单 + 锁图标）
 
-> ⚠️ **MSIX 采用自签名证书签名，首次安装前须先信任证书**，否则会报签名错误。请按下方步骤操作（管理员 PowerShell）：
+下载 `FolderCrypto-Setup-<版本>-x64.msi`，双击即可安装（首次会弹出 UAC 确认，选“是”）。MSI **已内置**资源管理器右键“加密/解密”与锁图标覆盖层，安装后无需任何额外配置。
+
+### 方式二：MSIX 安装包（备选，暂不随本次发布）
+
+MSIX 需要额外信任证书、且**不包含右键/锁图标**（需另跑 `FolderCrypto.Shell install`）。当前仓库的 MSIX 用旧证书签名，已与本机新证书体系不统一，因此本次 **Release 默认只发布 MSI**。如需 MSIX 请见 [RELEASE.md](RELEASE.md) 中的“MSIX 重签说明”。
 
 ```powershell
-# 1) 信任签名证书（只需一次）
+# 若将来发布 MSIX，用户安装需（管理员）：
 Import-Certificate -FilePath .\FolderCrypto.cer -CertStoreLocation Cert:\LocalMachine\Root
-# 2) 安装
 Add-AppxPackage -Path .\FolderCrypto.App_<版本>_x64.msix
 ```
 
@@ -104,6 +105,8 @@ dotnet restore FolderCrypto.sln
 
 ## 安装 Shell 集成（右键 / 关联 / 锁图标）
 
+> **MSI 安装包已内置右键菜单 + 锁图标注册，安装即生效，无需手动执行本节。** 本节命令仅用于**便携版 / MSIX** 等未自动注册的场景。
+
 ```bash
 # 使用主应用 exe 的完整路径；默认在解决方案构建输出中定位原生 DLL，
 # 也可用 --dll 显式指定。(建议以管理员权限运行以写入 HKLM 的 ShellIconOverlayIdentifiers)
@@ -111,6 +114,8 @@ FolderCrypto.Shell install "C:\path\to\FolderCrypto.App.exe" --dll "C:\path\to\F
 # 卸载
 FolderCrypto.Shell uninstall --dll "C:\path\to\FolderCrypto.ShellNative.dll"
 ```
+
+> 关于 MSI 中的右键注册：`wix\gen-wxs.ps1` 会生成 `FolderCrypto.wxs`，其中包含 `ShellIntegration` 组件（原生 DLL、图标、右键菜单注册表、锁图标覆盖层注册）。注册表写入 HKLM，卸载时由 MSI 自动清理。重新构建 MSI：`powershell -ExecutionPolicy Bypass -File wix\build-msi.ps1`。
 
 ## 手动验证清单
 
