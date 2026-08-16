@@ -2,6 +2,27 @@
 
 一个小型的 Windows 11 文件夹/文件加密软件，符合 WinUI 设计规范，并与资源管理器深度集成。
 
+## 下载安装（普通用户）
+
+请前往 **[Releases](https://github.com/wangshanghai240/FolderCrypto/releases)** 页面下载最新版本。
+
+需要下载两个文件：
+- `FolderCrypto.App_<版本>_x64.msix` —— 安装包
+- `FolderCrypto.cer` —— 签名证书
+
+> ⚠️ **MSIX 采用自签名证书签名，首次安装前须先信任证书**，否则会报签名错误。请按下方步骤操作（管理员 PowerShell）：
+
+```powershell
+# 1) 信任签名证书（只需一次）
+Import-Certificate -FilePath .\FolderCrypto.cer -CertStoreLocation Cert:\LocalMachine\Root
+# 2) 安装
+Add-AppxPackage -Path .\FolderCrypto.App_<版本>_x64.msix
+```
+
+完整教程见 **[RELEASE.md](RELEASE.md)**。
+
+> 源码开发者请跳过本节，直接看下方 [构建](#构建) 与 [安装 Shell 集成](#安装-shell-集成右键--关联--锁图标)。
+
 ## 功能
 
 - **原地加密（不再使用容器）**：在资源管理器中右键任意文件，选择“加密”即可就地加密该文件；右键文件夹“加密”则锁定该文件夹（不加密内部内容），文件可单独逐个加密。

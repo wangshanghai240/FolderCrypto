@@ -13,6 +13,12 @@ $kits = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64'
 $pfx  = Join-Path $root 'packages\FolderCrypto.pfx'
 $thumb = 'E25B41DD0AF64FACFBE19EB8FF277060E15A8463'
 
+# 私钥密码从环境变量 FOLDCRYPTO_PFX_PASS 读取，切勿硬编码进脚本/提交到 git。
+$pfxPass = $env:FOLDCRYPTO_PFX_PASS
+if ([string]::IsNullOrEmpty($pfxPass)) {
+    Write-Error '未设置环境变量 FOLDCRYPTO_PFX_PASS（PKCS#12 私钥密码）。签名步骤将跳过/失败。'
+}
+
 $publish = 'C:\Temp\_fc_publish'
 $stage   = 'C:\Temp\_wix_src'
 $wxs     = Join-Path $root 'wix\FolderCrypto.wxs'
@@ -42,7 +48,7 @@ wix build $wxs -arch x64 -o $outMsi | Out-Null
 Write-Host '==> 4/4 signing MSI ...'
 $tmp = 'C:\Temp\_fc_msi_tmp.msi'
 Copy-Item $outMsi $tmp -Force
-& "$kits\signtool.exe" sign /fd SHA256 /f $pfx /p 'FolderCrypto_Pfx_Pass2026!' /sha1 $thumb $tmp | Out-Null
+& "$kits\signtool.exe" sign /fd SHA256 /f $pfx /p $pfxPass /sha1 $thumb $tmp | Out-Null
 Copy-Item $tmp $outMsi -Force
 Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 & "$kits\signtool.exe" verify /pa $outMsi

@@ -16,6 +16,16 @@ preview/
 x64/
 _diag2/
 
+# Sensitive / distribution artifacts — NEVER commit these
+# (double protection even if the packages/ rule above is removed)
+*.pfx        # PKCS#12 private key — CRITICAL: never publish
+*.p12
+*.key
+*.pem
+*.cer        # signing cert (distribute via Release page instead of git)
+*.msix
+*.msi
+
 # Test results
 TestResults/
 *.trx
