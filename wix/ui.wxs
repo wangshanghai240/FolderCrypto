@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FolderCrypto 自定义安装 UI（WiX 4+/v7 已移除内置 WixUI 对话框集，故此处手写）。
+  采用【单一对话框】方案：欢迎/说明 + 选择安装目录 + 安装按钮 都合并在同一个对话框里，
+  通过序列 Show 一次显示，完全避免多对话框之间的 NewDialog 切换（避免某些环境下的 UI 消失）。
+  DirectoryCombo（目录下拉）+ PathEdit（路径输入）绑定 INSTALLFOLDER，支持安装到其他盘。
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="FcWixUI">
+
+      <!-- ============ 主对话框：说明 + 选目录 + 安装 ============ -->
+      <Dialog Id="FcSetupDlg" Width="370" Height="270" Title="[ProductName] 安装">
+        <!-- 注意：不要用 Type=Bitmap 的 Banner（需要 Binary 表中真实图片，缺失会导致
+             错误 2228/2343 "Specified path is empty"，UI 立即消失）。这里只用纯文字标题。 -->
+        <Control Id="Title" Type="Text" X="15" Y="12" Width="340" Height="22" TabSkip="yes" Text="安装 [ProductName] 文件夹加密工具" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" TabSkip="yes" />
+
+        <Control Id="Desc" Type="Text" X="25" Y="58" Width="320" Height="30" TabSkip="yes"
+                 Text="请输入安装目录（可安装到其他盘），然后点击“安装”。" />
+
+        <Control Id="FolderLabel" Type="Text" X="25" Y="92" Width="320" Height="14" TabSkip="yes"
+                 Text="安装目录（可填其他盘，例如 D:\FolderCrypto）：" />
+        <!-- 目录输入：使用【普通 Edit 文本控件】（绝不是 PathEdit/DirectoryCombo——那些 MSI 目录控件
+             在本环境创建对话框时反复报 2343"Specified path is empty"→ 界面一闪而过，已用日志铁证）。
+             用户输入写入 FC_INSTALLPATH；点“安装”时把值推入 INSTALLFOLDER(Secure) 后继续安装。
+             稳定可靠，不闪退。 -->
+        <Control Id="FolderEdit" Type="Edit" X="25" Y="112" Width="320" Height="18"
+                 Property="FC_INSTALLPATH" Sunken="yes" />
+        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="安装">
+          <Publish Property="INSTALLFOLDER" Value="[FC_INSTALLPATH]" Order="1" Condition="FC_INSTALLPATH" />
+          <Publish Event="EndDialog" Value="Return" Order="2" Condition="1" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="取消">
+          <Publish Event="SpawnDialog" Value="FcCancelDlg" Order="1" Condition="1" />
+        </Control>
+      </Dialog>
+
+      <!-- ============ 辅助对话框 ============ -->
+      <Dialog Id="FcCancelDlg" Width="260" Height="85" Title="[ProductName] 安装程序" ErrorDialog="no">
+        <Control Id="CancelText" Type="Text" X="48" Y="10" Width="200" Height="30" TabSkip="yes"
+                 Text="确实要取消安装 [ProductName] 吗？" />
+        <Control Id="Yes" Type="PushButton" X="72" Y="55" Width="56" Height="17" Default="yes" Text="是">
+          <Publish Event="EndDialog" Value="Exit" Order="1" Condition="1" />
+        </Control>
+        <Control Id="No" Type="PushButton" X="132" Y="55" Width="56" Height="17" Text="否">
+          <Publish Event="EndDialog" Value="Return" Order="1" Condition="1" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="FcErrorDlg" Width="260" Height="85" Title="[ProductName] 安装程序" ErrorDialog="yes">
+        <Control Id="ErrorText" Type="Text" X="48" Y="10" Width="200" Height="30" TabSkip="yes" Text="[Error1]" />
+        <Control Id="OK" Type="PushButton" X="102" Y="55" Width="56" Height="17" Default="yes" Text="确定">
+          <Publish Event="EndDialog" Value="ErrorOk" Order="1" Condition="1" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="FcFatalErrorDlg" Width="260" Height="85" Title="[ProductName] 安装程序">
+        <Control Id="ErrorText" Type="Text" X="48" Y="10" Width="200" Height="30" TabSkip="yes" Text="安装过程中出现错误。安装未完成。" />
+        <Control Id="OK" Type="PushButton" X="102" Y="55" Width="56" Height="17" Default="yes" Text="确定">
+          <Publish Event="EndDialog" Value="Exit" Order="1" Condition="1" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="FcUserExitDlg" Width="260" Height="85" Title="[ProductName] 安装程序">
+        <Control Id="ErrorText" Type="Text" X="48" Y="10" Width="200" Height="30" TabSkip="yes" Text="安装已取消。" />
+        <Control Id="OK" Type="PushButton" X="102" Y="55" Width="56" Height="17" Default="yes" Text="确定">
+          <Publish Event="EndDialog" Value="Exit" Order="1" Condition="1" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="FcFinishedDlg" Width="370" Height="160" Title="[ProductName] 安装">
+        <Control Id="FinishedText" Type="Text" X="25" Y="55" Width="320" Height="40" TabSkip="yes"
+                 Text="[ProductName] 已成功安装。" />
+        <Control Id="Finish" Type="PushButton" X="304" Y="130" Width="56" Height="17" Default="yes" Text="完成">
+          <Publish Event="EndDialog" Value="Return" Order="1" Condition="1" />
+        </Control>
+      </Dialog>
+
+      <!-- ============ 安装 UI 序列 ============ -->
+      <!-- 单一对话框：仅 Show 一次 FcSetupDlg，点“安装”后 EndDialog Return 继续安装。
+           无 NewDialog 切换，最大限度避免 UI 消失。 -->
+      <InstallUISequence>
+        <CostInitialize Sequence="800" />
+        <FileCost Sequence="900" />
+        <CostFinalize Sequence="1000" />
+        <Show Dialog="FcSetupDlg" Sequence="1101" />
+        <ExecuteAction Sequence="1500" />
+        <Show Dialog="FcFinishedDlg" Sequence="1600" />
+        <Show Dialog="FcUserExitDlg" Sequence="1601" />
+        <Show Dialog="FcFatalErrorDlg" Sequence="1602" />
+        <Show Dialog="FcErrorDlg" Sequence="1603" />
+      </InstallUISequence>
+
+      <AdminUISequence>
+        <CostInitialize Sequence="800" />
+        <CostFinalize Sequence="1000" />
+        <ExecuteAction Sequence="1500" />
+        <Show Dialog="FcFinishedDlg" Sequence="1600" />
+        <Show Dialog="FcUserExitDlg" Sequence="1601" />
+        <Show Dialog="FcFatalErrorDlg" Sequence="1602" />
+        <Show Dialog="FcErrorDlg" Sequence="1603" />
+      </AdminUISequence>
+    </UI>
+
+    <!-- 让 MSI 知道使用哪个对话框作为错误/取消对话框 -->
+    <Property Id="ErrorDialog" Value="FcErrorDlg" />
+    <Property Id="CancelDialog" Value="FcCancelDlg" />
+    <Property Id="FatalErrorDlg" Value="FcFatalErrorDlg" />
+    <Property Id="UserExitDlg" Value="FcUserExitDlg" />
+    <Property Id="FcSetupDlg" Value="FcSetupDlg" />
+
+    <!-- 让安装目录可在 UI 中被修改：把 INSTALLFOLDER 暴露为可编辑目录属性（间接层） -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" Secure="yes" />
+    <!-- 用户输入安装路径的普通属性（与 MSI 目录控件无关，避免 2343/1314 闪退）；
+         必须 Secure 才能把 UI 设置的值可靠传到执行序列用于实际安装目录。 -->
+    <Property Id="FC_INSTALLPATH" Secure="yes" />
+    <Property Id="INSTALLFOLDER" Secure="yes" />
+  </Fragment>
+</Wix>

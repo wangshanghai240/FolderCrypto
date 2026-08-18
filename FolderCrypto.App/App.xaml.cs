@@ -11,6 +11,10 @@ public partial class App : Application
     private Window? _window;
     private Microsoft.UI.Dispatching.DispatcherQueue? _uiDispatcher;
 
+    // 主窗口引用与托盘状态（托盘常驻用）
+    private static Window? _mainWindow;
+    private static bool _trayShown;
+
     public App()
     {
         InitializeComponent();
@@ -35,27 +39,67 @@ public partial class App : Application
 
         string[] cloneArgs = Environment.GetCommandLineArgs();
         var cmd = CommandLineParser.ParseArgs(cloneArgs, skipExecutable: true);
+        bool autostart = cloneArgs.Any(a => string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase));
 
         if (cmd != null)
         {
             // 从右键菜单启动（加密/解密）：直接弹出输入窗口（内容即表单），不显示主界面。
             _window = ShowPrompt(cmd);
         }
+        else if (autostart)
+        {
+            // 开机自启：静默后台托盘常驻，不弹出主窗口。
+            EnterBackgroundTray();
+        }
         else
         {
-            // 正常启动：显示主窗口
-            _window = new MainWindow();
-            // 关闭主窗口即退出整个应用，避免遗留“无窗口的悬挂进程”阻塞后续单实例打开。
-            _window.Closed += (w, e) =>
-            {
-                try { if (Microsoft.UI.Xaml.Application.Current != null) Microsoft.UI.Xaml.Application.Current.Exit(); } catch { }
-            };
-            // 不立即 Activate()，由 MainWindow 在布局就绪后再显示（消除启动白屏闪动）。
-            CurrentWindow = _window;
+            // 正常启动：显示主窗口（设置）。
+            ShowMainWindow();
         }
 
         // 窗口创建后再次应用主题，确保自定义强调色在首屏渲染后也能立即生效。
         ThemeService.Apply();
+    }
+
+    /// <summary>创建（若已存在则激活）主窗口。</summary>
+    private static void ShowMainWindow()
+    {
+        var w = _mainWindow;
+        if (w == null)
+        {
+            w = new MainWindow();
+            // 关闭主窗口时不退出应用，而是隐藏并进入「后台托盘常驻」，
+            // 保留托盘图标以便用户随时重新打开或退出。
+            w.Closed += (win, e) =>
+            {
+                _mainWindow = null;
+                CurrentWindow = null;
+                EnterBackgroundTray();
+            };
+            _mainWindow = w;
+        }
+        CurrentWindow = w;
+        try { w.Activate(); } catch { }
+    }
+
+    /// <summary>进入后台托盘常驻模式（显示托盘图标；若已显示则幂等）。</summary>
+    private static void EnterBackgroundTray()
+    {
+        if (_trayShown) return;
+        _trayShown = true;
+
+        var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        string? icon = ResolveLockIconPath();
+        try
+        {
+            TrayIconService.Show(
+                dispatcher,
+                "Folder Crypto 文件夹加密",
+                icon ?? string.Empty,
+                onOpenSettings: ShowMainWindow,
+                onExit: () => { try { if (Microsoft.UI.Xaml.Application.Current != null) Microsoft.UI.Xaml.Application.Current.Exit(); } catch { } });
+        }
+        catch { }
     }
 
     /// <summary>根据命令类型创建并显示对应的输入窗口（加密=密码+确认；解密=密码/恢复码），并返回该窗口。</summary>
@@ -307,17 +351,25 @@ public partial class App : Application
     /// <summary>
     /// 单实例转发过来的命令行。可能由后台管道线程调用，
     /// 必须投递到 UI 线程后再创建并显示输入窗口。
+    /// 若为普通启动（无加密/解密指令），则在后台常驻实例上打开主窗口。
     /// </summary>
     private void OnShellCommand(string[] args)
     {
         var cmd = CommandLineParser.ParseArgs(args, skipExecutable: true);
-        if (cmd == null) return;
 
         void show()
         {
-            var w = ShowPrompt(cmd);
-            _window = w;
-            CurrentWindow = w;
+            if (cmd != null)
+            {
+                var w = ShowPrompt(cmd);
+                _window = w;
+                CurrentWindow = w;
+            }
+            else
+            {
+                // 前台再次启动主程序：打开主窗口（设置）。
+                ShowMainWindow();
+            }
         }
 
         // 若已在 UI 线程则直接执行；否则通过启动时记录的 UI 调度器投递。
@@ -333,4 +385,7 @@ public partial class App : Application
 
     /// <summary>提供主窗口引用供其它对话框宿主使用。</summary>
     public static Window? CurrentWindow { get; private set; }
+
+    /// <summary>立即显示系统托盘图标（用户开启“随系统启动”后进入后台常驻，无需等下次登录）。</summary>
+    public static void ShowTrayIcon() => EnterBackgroundTray();
 }

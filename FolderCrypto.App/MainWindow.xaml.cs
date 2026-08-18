@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using FolderCrypto.App.Dialogs;
 using FolderCrypto.App.Services;
 using FolderCrypto.Core.Services;
 
@@ -14,6 +15,9 @@ namespace FolderCrypto.App;
 
 public sealed partial class MainWindow : Window
 {
+    /// <summary>初始化阶段抑制开机自启开关事件，避免启动时误触发。</summary>
+    private bool _suppressAutoStartEvent = true;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -28,7 +32,13 @@ public sealed partial class MainWindow : Window
         MainNav.SelectedItem = MainNav.MenuItems[0];
 
         // 根据已保存的主题设置初始化设置页 UI
-        InitSettingsUi();
+        UpdateSettingsUi();
+
+        // 开机自启开关：按当前注册表状态初始化（抑制事件，避免误触发开关/托盘）
+        _suppressAutoStartEvent = true;
+        AutoStartSwitch.IsChecked = StartupService.IsEnabled;
+        _suppressAutoStartEvent = false;
+        UpdateAutoStartUi();
 
         // 主题变化时刷新设置页 UI
         ThemeService.Changed += () => UpdateSettingsUi();
@@ -176,21 +186,6 @@ public sealed partial class MainWindow : Window
 
     // ---------- 主题设置 UI ----------
 
-    private void InitSettingsUi()
-    {
-        ThemeMode mode = ThemeService.Mode;
-        rbSystem.IsChecked = mode == ThemeMode.System;
-        rbLight.IsChecked = mode == ThemeMode.Light;
-        rbDark.IsChecked = mode == ThemeMode.Dark;
-        rbCustom.IsChecked = mode == ThemeMode.Custom;
-
-        rbCustomLight.IsChecked = ThemeService.CustomIsLight;
-        rbCustomDark.IsChecked = !ThemeService.CustomIsLight;
-
-        UpdateAccentPreview();
-        UpdateCustomPanelVisibility();
-    }
-
     private void UpdateSettingsUi()
     {
         // 控件在构造函数 InitializeComponent 后已创建，此回调必定在窗口就绪后触发。
@@ -230,22 +225,63 @@ public sealed partial class MainWindow : Window
         ThemeService.SetCustomAccent(hex);
     }
 
+    // ---------- 开机自启 ----------
+
+    /// <summary>开/关滑动开关：点击切换“随系统启动”；开启时立即显示托盘图标进入后台常驻。</summary>
+    private void OnAutoStartToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressAutoStartEvent) return;
+
+        bool want = AutoStartSwitch.IsChecked == true;
+        if (!StartupService.SetEnabled(want))
+        {
+            // 写入失败：回滚开关并提示（例如注册表被策略锁定）
+            _suppressAutoStartEvent = true;
+            AutoStartSwitch.IsChecked = !want;
+            _suppressAutoStartEvent = false;
+            _ = DialogHelper.ShowInfo(this, want ? "启用开机自启失败。" : "取消开机自启失败。");
+            return;
+        }
+
+        if (want)
+        {
+            // 开启后立即显示系统托盘图标，进入后台常驻（无需等待重启/关闭窗口）
+            App.ShowTrayIcon();
+        }
+
+        UpdateAutoStartUi();
+        SetStatus(want ? "已开启开机自启" : "已关闭开机自启");
+    }
+
+    private void UpdateAutoStartUi()
+    {
+        UpdateStartupToggleVisuals();
+        AutoStartStatusText.Text = AutoStartSwitch.IsChecked == true
+            ? "当前状态：已开启，登录后将在后台静默常驻。"
+            : "当前状态：未开启。";
+    }
+
+    /// <summary>同步“开/关”滑动开关外观：通过 VisualStateManager 切换旋钮位置与开/关文字。</summary>
+    private void UpdateStartupToggleVisuals()
+    {
+        try
+        {
+            VisualStateManager.GoToState(AutoStartSwitch,
+                AutoStartSwitch.IsChecked == true ? "Checked" : "Unchecked", true);
+        }
+        catch { }
+    }
+
     private void UpdateAccentPreview()
     {
-        if (AccentPreviewText != null)
-        {
-            AccentPreviewText.Text = "当前强调色：" + ThemeService.AccentHex;
-        }
+        AccentPreviewText.Text = "当前强调色：" + ThemeService.AccentHex;
     }
 
     private void UpdateCustomPanelVisibility()
     {
-        if (CustomPanel != null)
-        {
-            CustomPanel.Visibility = ThemeService.Mode == ThemeMode.Custom
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-        }
+        CustomPanel.Visibility = ThemeService.Mode == ThemeMode.Custom
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     // ---------- 加密/解密 ----------
@@ -258,10 +294,8 @@ public sealed partial class MainWindow : Window
         StorageFile? file = await picker.PickSingleFileAsync();
         if (file == null) return;
 
-        // 打开加密输入窗口（独立窗口，Win11 圆角；取消/关闭不会影响主界面状态）
-        var w = FolderCrypto.App.Dialogs.PromptWindow.ShowEncrypt(file.Path);
-        w.Activate();
-        SetStatus("已打开加密窗口");
+        // 打开加密输入窗口（独立窗口，Win11 圆角）；窗口关闭时恢复底部状态
+        OpenPrompt(PromptWindow.ShowEncrypt(file.Path), "已打开加密窗口");
     }
 
     private async void OnEncryptFolder(object sender, RoutedEventArgs e)
@@ -272,10 +306,8 @@ public sealed partial class MainWindow : Window
         StorageFolder? folder = await picker.PickSingleFolderAsync();
         if (folder == null) return;
 
-        // 打开加密输入窗口（独立窗口，Win11 圆角）
-        var w = FolderCrypto.App.Dialogs.PromptWindow.ShowEncrypt(folder.Path);
-        w.Activate();
-        SetStatus("已打开加密窗口");
+        // 打开加密输入窗口（独立窗口，Win11 圆角）；窗口关闭时恢复底部状态
+        OpenPrompt(PromptWindow.ShowEncrypt(folder.Path), "已打开加密窗口");
     }
 
     private async void OnDecrypt(object sender, RoutedEventArgs e)
@@ -323,10 +355,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // 已加密：打开解密输入窗口（独立窗口，Win11 圆角）
-        var w = FolderCrypto.App.Dialogs.PromptWindow.ShowDecrypt(path);
-        w.Activate();
-        SetStatus("已打开解密窗口");
+        // 已加密：打开解密输入窗口（独立窗口，Win11 圆角）；窗口关闭时恢复底部状态
+        OpenPrompt(PromptWindow.ShowDecrypt(path), "已打开解密窗口");
     }
 
     private void SetStatus(string message)
@@ -336,8 +366,18 @@ public sealed partial class MainWindow : Window
         StatusBar.Message = message;
     }
 
-    private void OnDismissStatus(object sender, RoutedEventArgs e)
+    /// <summary>打开加密/解密窗口并刷新状态；窗口关闭时把底部状态栏恢复为“就绪”。</summary>
+    private void OpenPrompt(PromptWindow window, string openingStatus)
     {
+        window.Closed += (_, _) => ResetStatus();
+        window.Activate();
+        SetStatus(openingStatus);
+    }
+
+    /// <summary>恢复底部状态栏为“就绪”，并收起提示条。</summary>
+    private void ResetStatus()
+    {
+        FooterText.Text = "就绪";
         StatusBar.IsOpen = false;
     }
 }
