@@ -91,6 +91,67 @@ foreach ($rel in ($all | Sort-Object)) {
 $subDirs = Emit-Dirs ''
 $componentXml = $componentList -join "`n"
 
+# ===========================================================================
+# 右键菜单注册表项（写 HKCU\Software\Classes，无需管理员）。
+# 直接以 MSI <RegistryKey> 组件实现：安装时写入、卸载时自动删除，
+# 完全替代 FolderCrypto.Shell.exe 的运行时注册（避免目标机依赖 .NET/自定义动作）。
+# 对应 ContextMenuRegistrar.RegisterVerb 写出的精确键值。
+# ===========================================================================
+$encryptStateClsid = '{F8A2B000-1234-4A5B-9C6D-7E8F9A0B1C2D}'
+$decryptStateClsid = '{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}'
+$appExe           = '[INSTALLFOLDER]FolderCrypto.App.exe'
+$lockIcon        = '[INSTALLFOLDER]shell-support\overlay-lock.ico'
+$unlockIcon      = '[INSTALLFOLDER]shell-support\unlock.ico'
+
+# 每个条目: rootShell, verb, label, arg, icon(可为空), stateHandlerClsid(可为空)
+$verbs = @(
+    @('*\shell',               'FolderCryptoEncrypt',    '加密',     'encrypt',         $lockIcon,   $encryptStateClsid),
+    @('*\shell',               'FolderCryptoDecrypt',    '解密',     'decrypt',         $unlockIcon, $decryptStateClsid),
+    @('Directory\shell',       'FolderCryptoEncrypt',    '加密',     'encrypt',         $lockIcon,   $encryptStateClsid),
+    @('Directory\shell',       'FolderCryptoDecrypt',    '解密',     'decrypt',         $unlockIcon, $decryptStateClsid),
+    @('Directory\Background\shell', 'FolderCryptoEncrypt', '加密选中', 'encrypt-here',    $lockIcon,   '')
+)
+
+function To-FormattedPath([string]$p) { return $p }  # keep [INSTALLFOLDER] formatted as-is
+
+$ctxMenuXml = ''
+$ctxRefIds  = @()
+$idx = 0
+foreach ($v in $verbs) {
+    $idx++
+    $rootShell = $v[0]; $verb = $v[1]; $label = $v[2]; $arg = $v[3]; $icon = $v[4]; $clsid = $v[5]
+    $safe = $rootShell -replace '[\\*]','_'
+    $cid = "CtxMenu_$idx"
+    $key = "Software\Classes\$rootShell\$verb"
+    $cmd = "&quot;{0}&quot; {1} &quot;%1&quot;" -f $appExe, $arg   # double-quote command line
+
+    $values = "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Type=`"string`" Value=`"$label`" KeyPath=`"yes`" />`n"
+    $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Name=`"MUIVerb`" Type=`"string`" Value=`"$label`" />`n"
+    if ($icon) { $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Name=`"Icon`" Type=`"string`" Value=`"$icon`" />`n" }
+    if ($clsid) { $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Name=`"CommandStateHandler`" Type=`"string`" Value=`"$clsid`" />`n" }
+    $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key\command`" Type=`"string`" Value=`"$cmd`" />`n"
+
+    $ctxMenuXml += @"
+    <Component Id="$cid" Guid="$(New-MsiGuid "ctx-$rootShell-$verb")" Directory="INSTALLFOLDER">
+$values    </Component>
+
+"@
+    $ctxRefIds += "      <ComponentRef Id=`"$cid`" />"
+}
+$ctxRefs = $ctxRefIds -join "`n"
+
+# 保留卸载时用于清理传统/旧版遗留的 RemoveRegistryKey（FolderCrypto.Shell 运行过但未跟踪的键）
+$contextMenuKeys = @(
+    'Software\Classes\*\shell\FolderCryptoEncrypt',
+    'Software\Classes\*\shell\FolderCryptoDecrypt',
+    'Software\Classes\Directory\shell\FolderCryptoEncrypt',
+    'Software\Classes\Directory\shell\FolderCryptoDecrypt',
+    'Software\Classes\Directory\Background\shell\FolderCryptoEncrypt'
+)
+$cleanupRemoves = $contextMenuKeys | ForEach-Object {
+    "        <RemoveRegistryKey Root=`"HKCU`" Key=`"$_`" Action=`"removeOnUninstall`" />"
+} | Out-String
+
 $iconPath = (Get-ChildItem $src -Filter 'LockIcon.ico' -Recurse | Select-Object -First 1).FullName
 if (-not $iconPath) { $iconPath = (Join-Path $PSScriptRoot '..\FolderCrypto.App\Assets\LockIcon.ico') }
 $iconId = 'appIcon'
@@ -113,8 +174,9 @@ $wxs = @"
 
     <Icon Id="$iconId" SourceFile="$iconPath" />
 
+        <StandardDirectory Id="TARGETDIR" />
     <StandardDirectory Id="ProgramFiles6432Folder">
-      <Directory Id="INSTALLFOLDER" Name="FolderCrypto">
+<Directory Id="INSTALLFOLDER" Name="FolderCrypto">
 $subDirs
       </Directory>
     </StandardDirectory>
@@ -142,12 +204,25 @@ $subDirs
       </Component>
     </StandardDirectory>
 
+    <!-- 卸载时清理右键菜单残留（HKCU，无需管理员）。 -->
+    <Component Id="ContextMenuCleanup" Guid="$(New-MsiGuid 'contextmenu-cleanup')" Directory="INSTALLFOLDER">
+$cleanupRemoves    </Component>
+
+    <!-- 安装时写入的右键菜单注册表项（对应 ContextMenuRegistrar，安装即注册、卸载即删除）。 -->
+$ctxMenuXml
     <Property Id="ARPPRODUCTICON" Value="$iconId" />
+
+    <!-- 引入自定义安装 UI（ui.wxs，含目录选择） -->
+    <UI>
+      <UIRef Id="FcWixUI" />
+    </UI>
 
     <Feature Id="MainFeature" Title="FolderCrypto" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
+$ctxRefs
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="ContextMenuCleanup" />
     </Feature>
   </Package>
 
@@ -162,3 +237,4 @@ $componentXml
 Set-Content -Path $Out -Value $wxs -Encoding UTF8
 Write-Host "Wrote $Out"
 Write-Host "dirs: $($dirMap.Count), files: $($all.Count)"
+

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>FolderCrypto.Bootstrapper</RootNamespace>
+    <AssemblyName>FolderCrypto.Setup</AssemblyName>
+    <ApplicationIcon>Assets\LockIcon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Platforms>x64</Platforms>
+    <Version>1.0.14</Version>
+    <AssemblyTitle>FolderCrypto 文件夹加密 安装程序</AssemblyTitle>
+    <Product>FolderCrypto 文件夹加密</Product>
+    <Description>FolderCrypto 文件夹加密 安装引导程序（自研 WPF UI，静默安装内置 MSI）</Description>
+  </PropertyGroup>
+
+  <!-- 内置 MSI：构建引导程序前由 wix\build-bootstrapper.ps1 把最新 MSI 拷贝进来。
+       LogicalName 固定，运行时通过 GetManifestResourceStream("FolderCryptoSetup.msi") 读取。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="Embedded\FolderCrypto-Setup.msi" LogicalName="FolderCryptoSetup.msi" />
+  </ItemGroup>
+
+</Project>

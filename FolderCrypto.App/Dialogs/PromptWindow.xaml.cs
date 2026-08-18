@@ -44,19 +44,22 @@ public sealed partial class PromptWindow : Window
 
         // 窗口真正显示后，再次设定大小并居中，确保可见到用户屏幕上
         // （否则可能在任务栏有、但窗口落在屏外/大小不对）。
-        (Content as FrameworkElement).Loaded += (s, e) =>
+        if (Content is FrameworkElement contentRoot)
         {
-            try { AppWindow.Resize(new Windows.Graphics.SizeInt32(500, 480)); } catch { }
-            try { CenterOnScreen(); } catch { }
-            try { AppWindow.Show(); } catch { }
-            // 窗口布局/移动后重新断言密码框的显示按钮(小眼睛)，避免有时不显示
-            try
+            contentRoot.Loaded += (s, e) =>
             {
-                PasswordBox.PasswordRevealMode = PasswordBox.PasswordRevealMode;
-                ConfirmBox.PasswordRevealMode = ConfirmBox.PasswordRevealMode;
-            }
-            catch { }
-        };
+                try { AppWindow.Resize(new Windows.Graphics.SizeInt32(500, 480)); } catch { }
+                try { CenterOnScreen(); } catch { }
+                try { AppWindow.Show(); } catch { }
+                // 窗口布局/移动后重新断言密码框的显示按钮(小眼睛)，避免有时不显示
+                try
+                {
+                    PasswordBox.PasswordRevealMode = PasswordBox.PasswordRevealMode;
+                    ConfirmBox.PasswordRevealMode = ConfirmBox.PasswordRevealMode;
+                }
+                catch { }
+            };
+        }
 
         if (encryptMode)
         {
