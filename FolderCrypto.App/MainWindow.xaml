@@ -183,23 +183,30 @@
                                     <TextBlock Text="启动选项" Style="{ThemeResource SubtitleTextBlockStyle}"/>
                                 </StackPanel>
 
-                                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                                <!-- Grid 两列：文字列自适应(*)，按钮列恒可见(Auto)，
+                                     避免按钮被说明文字挤出可视区（横向 StackPanel 在窄窗口会被裁剪） -->
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
                                         <TextBlock Text="跟随系统启动" Style="{ThemeResource BodyStrongTextBlockStyle}"/>
                                         <TextBlock Text="登录 Windows 后自动在后台托盘静默常驻（不弹主界面），让右键加密/解密更快；可通过系统托盘图标打开设置或退出程序。"
-                                                   TextWrapping="Wrap" MaxWidth="520"
+                                                   TextWrapping="Wrap"
                                                    Style="{ThemeResource CaptionTextBlockStyle}"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         <TextBlock x:Name="AutoStartStatusText"
                                                    Style="{ThemeResource CaptionTextBlockStyle}"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     </StackPanel>
-                                    <Button x:Name="AutoStartButton"
+                                    <Button Grid.Column="1"
+                                            x:Name="AutoStartButton"
                                             Content="开启开机自启"
                                             Click="OnAutoStartClick"
                                             MinWidth="110"
                                             VerticalAlignment="Center"/>
-                                </StackPanel>
+                                </Grid>
                             </StackPanel>
                         </Border>
                     </StackPanel>
