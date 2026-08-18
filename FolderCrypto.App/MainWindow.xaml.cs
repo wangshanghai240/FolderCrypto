@@ -15,6 +15,9 @@ namespace FolderCrypto.App;
 
 public sealed partial class MainWindow : Window
 {
+    /// <summary>初始化阶段抑制开机自启开关事件，避免启动时误触发。</summary>
+    private bool _suppressAutoStartEvent = true;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -31,7 +34,10 @@ public sealed partial class MainWindow : Window
         // 根据已保存的主题设置初始化设置页 UI
         UpdateSettingsUi();
 
-        // 开机自启按钮：按当前注册表状态刷新按钮/提示文字
+        // 开机自启开关：按当前注册表状态初始化（抑制事件，避免误触发开关/托盘）
+        _suppressAutoStartEvent = true;
+        AutoStartSwitch.IsChecked = StartupService.IsEnabled;
+        _suppressAutoStartEvent = false;
         UpdateAutoStartUi();
 
         // 主题变化时刷新设置页 UI
@@ -221,26 +227,49 @@ public sealed partial class MainWindow : Window
 
     // ---------- 开机自启 ----------
 
-    private void OnAutoStartClick(object sender, RoutedEventArgs e)
+    /// <summary>开/关滑动开关：点击切换“随系统启动”；开启时立即显示托盘图标进入后台常驻。</summary>
+    private void OnAutoStartToggled(object sender, RoutedEventArgs e)
     {
-        bool want = !StartupService.IsEnabled;
+        if (_suppressAutoStartEvent) return;
+
+        bool want = AutoStartSwitch.IsChecked == true;
         if (!StartupService.SetEnabled(want))
         {
-            // 写入失败（例如注册表被策略锁定）
+            // 写入失败：回滚开关并提示（例如注册表被策略锁定）
+            _suppressAutoStartEvent = true;
+            AutoStartSwitch.IsChecked = !want;
+            _suppressAutoStartEvent = false;
             _ = DialogHelper.ShowInfo(this, want ? "启用开机自启失败。" : "取消开机自启失败。");
             return;
         }
+
+        if (want)
+        {
+            // 开启后立即显示系统托盘图标，进入后台常驻（无需等待重启/关闭窗口）
+            App.ShowTrayIcon();
+        }
+
         UpdateAutoStartUi();
         SetStatus(want ? "已开启开机自启" : "已关闭开机自启");
     }
 
     private void UpdateAutoStartUi()
     {
-        bool enabled = StartupService.IsEnabled;
-        AutoStartButton.Content = enabled ? "关闭开机自启" : "开启开机自启";
-        AutoStartStatusText.Text = enabled
+        UpdateStartupToggleVisuals();
+        AutoStartStatusText.Text = AutoStartSwitch.IsChecked == true
             ? "当前状态：已开启，登录后将在后台静默常驻。"
             : "当前状态：未开启。";
+    }
+
+    /// <summary>同步“开/关”滑动开关外观：通过 VisualStateManager 切换旋钮位置与开/关文字。</summary>
+    private void UpdateStartupToggleVisuals()
+    {
+        try
+        {
+            VisualStateManager.GoToState(AutoStartSwitch,
+                AutoStartSwitch.IsChecked == true ? "Checked" : "Unchecked", true);
+        }
+        catch { }
     }
 
     private void UpdateAccentPreview()

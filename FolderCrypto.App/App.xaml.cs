@@ -385,4 +385,7 @@ public partial class App : Application
 
     /// <summary>提供主窗口引用供其它对话框宿主使用。</summary>
     public static Window? CurrentWindow { get; private set; }
+
+    /// <summary>立即显示系统托盘图标（用户开启“随系统启动”后进入后台常驻，无需等下次登录）。</summary>
+    public static void ShowTrayIcon() => EnterBackgroundTray();
 }

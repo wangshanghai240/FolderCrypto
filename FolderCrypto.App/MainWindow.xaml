@@ -200,12 +200,64 @@
                                                    Style="{ThemeResource CaptionTextBlockStyle}"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     </StackPanel>
-                                    <Button Grid.Column="1"
-                                            x:Name="AutoStartButton"
-                                            Content="开启开机自启"
-                                            Click="OnAutoStartClick"
-                                            MinWidth="110"
-                                            VerticalAlignment="Center"/>
+                                    <!-- 开/关滑动开关：跟随系统启动时旋钮在右并显示“开”，关闭时旋钮在左显示“关” -->
+                                    <ToggleButton x:Name="AutoStartSwitch"
+                                                  Grid.Column="1"
+                                                  Width="58" Height="28"
+                                                  Padding="0"
+                                                  VerticalAlignment="Center"
+                                                  IsTabStop="False"
+                                                  Checked="OnAutoStartToggled"
+                                                  Unchecked="OnAutoStartToggled">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Grid>
+                                                    <VisualStateManager.VisualStateGroups>
+                                                        <VisualStateGroup x:Name="CheckStates">
+                                                            <VisualStateGroup.Transitions>
+                                                                <VisualTransition To="Checked" GeneratedDuration="0:0:0.18"/>
+                                                                <VisualTransition To="Unchecked" GeneratedDuration="0:0:0.18"/>
+                                                            </VisualStateGroup.Transitions>
+                                                            <VisualState x:Name="Checked">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="OnLabel.Visibility" Value="Visible"/>
+                                                                    <Setter Target="OffLabel.Visibility" Value="Collapsed"/>
+                                                                    <Setter Target="KnobShift.X" Value="30"/>
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="Unchecked">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="OnLabel.Visibility" Value="Collapsed"/>
+                                                                    <Setter Target="OffLabel.Visibility" Value="Visible"/>
+                                                                    <Setter Target="KnobShift.X" Value="0"/>
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                        </VisualStateGroup>
+                                                    </VisualStateManager.VisualStateGroups>
+
+                                                    <Border x:Name="Track"
+                                                            Width="58" Height="28" CornerRadius="14"
+                                                            BorderBrush="White" BorderThickness="1.5"
+                                                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+                                                    <TextBlock x:Name="OnLabel" Text="开" FontSize="11"
+                                                               Foreground="White" VerticalAlignment="Center"
+                                                               HorizontalAlignment="Left" Margin="10,0,0,0"
+                                                               IsHitTestVisible="False"/>
+                                                    <TextBlock x:Name="OffLabel" Text="关" FontSize="11"
+                                                               Foreground="White" VerticalAlignment="Center"
+                                                               HorizontalAlignment="Right" Margin="0,0,10,0"
+                                                               IsHitTestVisible="False"/>
+                                                    <Ellipse x:Name="Knob" Width="20" Height="20" Fill="White"
+                                                             HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                             Margin="4,0,0,0" IsHitTestVisible="False">
+                                                        <Ellipse.RenderTransform>
+                                                            <TranslateTransform x:Name="KnobShift"/>
+                                                        </Ellipse.RenderTransform>
+                                                    </Ellipse>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
                                 </Grid>
                             </StackPanel>
                         </Border>
