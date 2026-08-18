@@ -1,4 +1,4 @@
-# ===========================================================================
+﻿# ===========================================================================
 #  FolderCrypto - Build MSI installer (WiX v7)
 #  Chains: trimmed publish -> stage -> generate .wxs -> wix build -> sign.
 #
@@ -16,6 +16,10 @@ $thumb = 'DA635E69430FDBAB33423734763962CCE104D4DF'
 $publish = 'C:\Temp\_fc_publish'
 $stage   = 'C:\Temp\_wix_src'
 $wxs     = Join-Path $root 'wix\FolderCrypto.wxs'
+
+# 0) 重新生成深色模式右键/覆盖层图标（overlay-lock.ico=加密, unlock.ico=解密）
+Write-Host '==> 0/4 regenerate dark-mode icons ...'
+powershell -ExecutionPolicy Bypass -File (Join-Path $root 'wix\gen-icons.ps1') | Out-Null
 
 # 1) trimmed publish
 Write-Host '==> 1/4 dotnet publish (trimmed) ...'
@@ -44,10 +48,10 @@ Get-ChildItem $shellDir -Recurse -Filter '*.pdb' | Remove-Item -Force
 # --- native overlay DLL + overlay icons → same shell-support dir ---
 $nativeDll = Join-Path $root 'FolderCrypto.ShellNative\x64\Release\FolderCrypto.ShellNative.dll'
 if (Test-Path $nativeDll) { Copy-Item $nativeDll (Join-Path $shellDir 'FolderCrypto.ShellNative.dll') -Force }
-# overlay-lock.ico 与 unlock.ico：优先用 shellNative 发布目录，其次 packages 兜底
+# overlay-lock.ico 与 unlock.ico：从 ShellNative 源码目录取（每次构建前由 gen-icons.ps1 重生成）
 $icoSrc = @{
-    'overlay-lock.ico' = (Join-Path $root 'FolderCrypto.ShellNative\x64\Release\overlay-lock.ico')
-    'unlock.ico'       = (Join-Path $root 'packages\unlock.ico')
+    'overlay-lock.ico' = (Join-Path $root 'FolderCrypto.ShellNative\overlay-lock.ico')
+    'unlock.ico'       = (Join-Path $root 'FolderCrypto.ShellNative\unlock.ico')
 }
 foreach ($ico in 'overlay-lock.ico','unlock.ico') {
     $p = $icoSrc[$ico]
