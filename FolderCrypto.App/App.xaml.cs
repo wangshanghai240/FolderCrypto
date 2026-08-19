@@ -13,7 +13,6 @@ public partial class App : Application
 
     // 主窗口引用与托盘状态（托盘常驻用）
     private static Window? _mainWindow;
-    private static bool _trayShown;
 
     public App()
     {
@@ -87,11 +86,10 @@ public partial class App : Application
     /// <summary>进入后台托盘常驻模式（显示托盘图标；若已显示则幂等）。</summary>
     private static void EnterBackgroundTray()
     {
+        TrayIconService.Log($"EnterBackgroundTray: ShowTrayIcon={SettingsService.ShowTrayIcon}");
+
         // 用户关闭「显示系统托盘图标」时不显示图标，仅保持后台静默常驻。
         if (!SettingsService.ShowTrayIcon) return;
-
-        if (_trayShown) return;
-        _trayShown = true;
 
         var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         string? icon = ResolveLockIconPath();
@@ -104,7 +102,7 @@ public partial class App : Application
                 onOpenSettings: ShowMainWindow,
                 onExit: () => { try { if (Microsoft.UI.Xaml.Application.Current != null) Microsoft.UI.Xaml.Application.Current.Exit(); } catch { } });
         }
-        catch { }
+        catch (Exception ex) { TrayIconService.Log($"EnterBackgroundTray 异常: {ex}"); }
     }
 
     /// <summary>根据命令类型创建并显示对应的输入窗口（加密=密码+确认；解密=密码/恢复码），并返回该窗口。</summary>
@@ -397,8 +395,6 @@ public partial class App : Application
     /// <summary>隐藏系统托盘图标（用户关闭「显示系统托盘图标」时调用）。</summary>
     public static void HideTrayIcon()
     {
-        if (!_trayShown) return;
-        _trayShown = false;
         try { TrayIconService.Hide(); } catch { }
     }
 }

@@ -11,7 +11,6 @@ namespace FolderCrypto.App.Services;
 /// </summary>
 public static class TrayIconService
 {
-    private const string WindowClassName = "FolderCrypto_TrayHost";
     private const int WM_TRAYICON = 0x0400 + 1;   // WM_APP + 1
     private const int WM_COMMAND = 0x0111;
     private const int NIM_ADD = 0;
@@ -23,6 +22,7 @@ public static class TrayIconService
     private const int WM_LBUTTONUP = 0x0202;
     private const int WM_RBUTTONUP = 0x0205;
     private const int WM_LBUTTONDBLCLK = 0x0203;
+    private const int GWLP_WNDPROC = -4;
     private const uint TPM_RETURNCMD = 0x0100;
     private const uint TPM_RIGHTBUTTON = 0x0002;
     private const uint TPM_LEFTALIGN = 0x0000;
@@ -34,11 +34,28 @@ public static class TrayIconService
     private static IntPtr _hwnd = IntPtr.Zero;
     private static IntPtr _icon = IntPtr.Zero;
     private static bool _visible;
+    private static bool _added;   // NIM_ADD 是否已成功（图标真实存在）
+    private static IntPtr _prevWndProc = IntPtr.Zero;   // 子类化前保存的原 WndProc
     private static DispatcherQueue? _dispatcher;
     private static Action? _onOpenSettings;
     private static Action? _onExit;
 
     private static IntPtr _hMenu = IntPtr.Zero;
+
+    /// <summary>写诊断日志到 %LOCALAPPDATA%\FolderCrypto\debug.log（便于排查托盘问题）。</summary>
+    public static void Log(string msg)
+    {
+        try
+        {
+            string dir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FolderCrypto");
+            System.IO.Directory.CreateDirectory(dir);
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(dir, "debug.log"),
+                $"{DateTime.Now:HH:mm:ss.fff} [Tray] {msg}{Environment.NewLine}");
+        }
+        catch { }
+    }
 
     // 托盘图标提示文字与「任务栏重建」广播消息（Explorer 重启后恢复图标用）。
     private static string _tooltip = "";
@@ -49,32 +66,36 @@ public static class TrayIconService
     private static DispatcherQueueTimer? _retryTimer;
     private static int _retryCount;
 
-    /// <summary>显示托盘图标。在主 UI 线程调用。</summary>
+    /// <summary>显示托盘图标。在主 UI 线程调用；幂等，可重复调用。</summary>
     public static void Show(DispatcherQueue dispatcher, string tooltip, string iconPath, Action onOpenSettings, Action onExit)
     {
-        if (_visible) return;
         _dispatcher = dispatcher;
         _onOpenSettings = onOpenSettings;
         _onExit = onExit;
         _tooltip = tooltip;
 
-        _hwnd = CreateMessageWindow();
-        if (_hwnd == IntPtr.Zero) return;
+        Log($"Show: _visible={_visible}, _added={_added}, _hwnd=0x{_hwnd.ToInt64():X}");
 
-        // 注册「任务栏重建」系统广播消息，Explorer 重启后托盘区重建时能自动重新添加图标。
-        _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
-
-        // 加载托盘图标（32x32）
-        _icon = LoadImage(IntPtr.Zero, iconPath, 1 /*IMAGE_ICON*/, 32, 32, 0x0010 /*LR_LOADFROMFILE*/);
-        if (_icon == IntPtr.Zero)
+        if (_hwnd == IntPtr.Zero)
         {
-            _icon = LoadIcon(IntPtr.Zero, (IntPtr)32512 /*IDI_APPLICATION*/);
+            _hwnd = CreateMessageWindow();
+            Log($"CreateMessageWindow -> 0x{_hwnd.ToInt64():X}");
+            if (_hwnd == IntPtr.Zero) return;
+
+            // 注册「任务栏重建」系统广播消息，Explorer 重启后托盘区重建时能自动重新添加图标。
+            _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
+
+            // 加载托盘图标（32x32）
+            _icon = LoadImage(IntPtr.Zero, iconPath, 1 /*IMAGE_ICON*/, 32, 32, 0x0010 /*LR_LOADFROMFILE*/);
+            if (_icon == IntPtr.Zero)
+            {
+                _icon = LoadIcon(IntPtr.Zero, (IntPtr)32512 /*IDI_APPLICATION*/);
+            }
+            _visible = true;
         }
 
-        _visible = _hwnd != IntPtr.Zero;
-
-        // 添加托盘图标；开机自启时托盘区可能尚未就绪，NIM_ADD 失败会自动重试。
-        TryAddIcon();
+        // 图标未真正加上时始终尝试（失败自动重试），保证开关开启后图标必然出现。
+        if (!_added) TryAddIcon();
     }
 
     /// <summary>
@@ -84,11 +105,14 @@ public static class TrayIconService
     /// </summary>
     private static void TryAddIcon()
     {
-        if (!_visible || _hwnd == IntPtr.Zero) return;
+        if (!_visible || _hwnd == IntPtr.Zero || _added) return;
 
         var nid = BuildNid();
-        if (Shell_NotifyIcon(NIM_ADD, ref nid))
+        bool ok = Shell_NotifyIcon(NIM_ADD, ref nid);
+        Log($"NIM_ADD -> {ok} (err={Marshal.GetLastWin32Error()})");
+        if (ok)
         {
+            _added = true;
             StopRetry();
             return;
         }
@@ -102,14 +126,18 @@ public static class TrayIconService
             _retryTimer.IsRepeating = true;
             _retryTimer.Tick += (s, e) =>
             {
-                if (!_visible || ++_retryCount > MaxTrayAddRetries)
+                if (!_visible || _hwnd == IntPtr.Zero || ++_retryCount > MaxTrayAddRetries)
                 {
                     StopRetry();
                     return;
                 }
+                if (_added) { StopRetry(); return; }
                 var retryNid = BuildNid();
-                if (Shell_NotifyIcon(NIM_ADD, ref retryNid))
+                bool retryOk = Shell_NotifyIcon(NIM_ADD, ref retryNid);
+                Log($"NIM_ADD retry#{_retryCount} -> {retryOk} (err={Marshal.GetLastWin32Error()})");
+                if (retryOk)
                 {
+                    _added = true;
                     StopRetry();
                 }
             };
@@ -145,20 +173,26 @@ public static class TrayIconService
     public static void Hide()
     {
         if (!_visible) return;
-        var nid = new NOTIFYICONDATA();
-        nid.cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATA>();
-        nid.hWnd = _hwnd;
-        nid.uID = 1;
-        _ = Shell_NotifyIcon(NIM_DELETE, ref nid);
+        if (_added)
+        {
+            var nid = new NOTIFYICONDATA();
+            nid.cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATA>();
+            nid.hWnd = _hwnd;
+            nid.uID = 1;
+            _ = Shell_NotifyIcon(NIM_DELETE, ref nid);
+            _added = false;
+        }
         _visible = false;
         StopRetry();
 
         if (_hMenu != IntPtr.Zero) { DestroyMenu(_hMenu); _hMenu = IntPtr.Zero; }
-        if (_icon != IntPtr.Zero && _icon != LoadIcon(IntPtr.Zero, (IntPtr)32512)) { /* 由系统在 destroy 时清理，见下 */ }
         if (_hwnd != IntPtr.Zero) { DestroyWindow(_hwnd); _hwnd = IntPtr.Zero; }
+        _prevWndProc = IntPtr.Zero;
+        _icon = IntPtr.Zero;
+        Log("Hide");
     }
 
-    private static void WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
+    private static bool WndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
         if (msg == WM_TRAYICON)
         {
@@ -172,21 +206,27 @@ public static class TrayIconService
             {
                 ShowContextMenu(hwnd);
             }
+            return true;
         }
-        else if (msg == WM_COMMAND)
+        if (msg == WM_COMMAND)
         {
             int id = (short)(wParam.ToInt64() & 0xFFFF);
             DispatchCommand(id);
+            return true;
         }
-        else if (_taskbarCreatedMsg != 0 && msg == _taskbarCreatedMsg)
+        if (_taskbarCreatedMsg != 0 && msg == _taskbarCreatedMsg)
         {
-            // Explorer 重启后托盘区重建：重新添加图标。
+            // Explorer 重启后托盘区重建：原有图标已丢失，需重新添加。
+            _added = false;
             TryAddIcon();
+            return true;
         }
-        else if (msg == 0x0010 /*WM_CLOSE*/)
+        if (msg == 0x0010 /*WM_CLOSE*/)
         {
             DestroyWindow(hwnd);
+            return true;
         }
+        return false;
     }
 
     private static void ShowContextMenu(IntPtr hwnd)
@@ -226,30 +266,30 @@ public static class TrayIconService
 
     private static IntPtr CreateMessageWindow()
     {
-        // 注册一个仅用于接收消息的隐藏窗口类
-        var wc = new WNDCLASS
+        // 用内置 STATIC 类创建隐藏消息窗口，再通过 SetWindowLongPtr 子类化替换为我们的 WndProc。
+        // 原因：实测在 WinUI 3 中，自定义注册类 + .NET 委托 WndProc 时 RegisterClass 虽成功，
+        // 但 CreateWindowEx 返回 NULL 且不会回调 WndProc（兼容性问题），故改用 STATIC 类 + 子类化。
+        IntPtr hInstance = GetModuleHandle(null);
+        IntPtr hwnd = CreateWindowEx(
+            0, "STATIC", "FolderCryptoTray", 0,
+            int.MinValue, int.MinValue, 0, 0, IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
+        if (hwnd == IntPtr.Zero)
         {
-            lpfnWndProc = Marshal.GetFunctionPointerForDelegate(WndProcCallback),
-            hInstance = GetModuleHandle(null),
-            lpszClassName = WindowClassName,
-        };
-        if (RegisterClass(ref wc) == 0 && Marshal.GetLastWin32Error() != 1410 /*ERROR_CLASS_ALREADY_EXISTS*/)
-        {
+            Log($"CreateMessageWindow: STATIC 创建失败 err={Marshal.GetLastWin32Error()}");
             return IntPtr.Zero;
         }
-        return CreateWindowEx(
-            0, WindowClassName, "FolderCryptoTray", 0,
-            int.MinValue, int.MinValue, 0, 0, IntPtr.Zero, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero);
+        _prevWndProc = SetWindowLongPtr(hwnd, GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(WndProcCallback));
+        Log($"CreateMessageWindow: hwnd=0x{hwnd.ToInt64():X}");
+        return hwnd;
     }
 
     private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     private static readonly WndProcDelegate WndProcCallback = (h, m, w, l) =>
     {
-        // WM_NCCREATE 必须返回 TRUE(1)，否则 CreateWindowEx 会直接失败返回 NULL，
-        // 导致消息窗口建不出来、Shell_NotifyIcon 永远加不上托盘图标。
-        if (m == 0x0081 /*WM_NCCREATE*/) return new IntPtr(1);
-        WndProc(h, m, w, l);
-        return IntPtr.Zero;
+        // 已处理的消息直接返回 0；未处理的交给原 WndProc（STATIC/系统默认），避免破坏默认行为。
+        return WndProc(h, m, w, l)
+            ? IntPtr.Zero
+            : (_prevWndProc == IntPtr.Zero ? DefWindowProc(h, m, w, l) : CallWindowProc(_prevWndProc, h, m, w, l));
     };
 
     // ---------- Win32 定义 ----------
@@ -276,23 +316,6 @@ public static class TrayIconService
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct WNDCLASS
-    {
-        public uint style;
-        public IntPtr lpfnWndProc;
-        public int cbClsExtra;
-        public int cbWndExtra;
-        public IntPtr hInstance;
-        public IntPtr hIcon;
-        public IntPtr hCursor;
-        public IntPtr hbrBackground;
-        [MarshalAs(UnmanagedType.LPWStr)]
-        public string lpszMenuName;
-        [MarshalAs(UnmanagedType.LPWStr)]
-        public string lpszClassName;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
     private struct POINT
     {
         public int X;
@@ -302,11 +325,17 @@ public static class TrayIconService
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
 
-    [DllImport("user32.dll")]
-    private static extern uint RegisterClass(ref WNDCLASS lpWndClass);
-
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern uint RegisterWindowMessage(string lpString);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DefWindowProc(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr CreateWindowEx(uint dwExStyle, string lpClassName, string lpWindowName,
@@ -316,7 +345,7 @@ public static class TrayIconService
     [DllImport("user32.dll")]
     private static extern bool DestroyWindow(IntPtr hWnd);
 
-    [DllImport("user32.dll")]
+    [DllImport("kernel32.dll")]
     private static extern IntPtr GetModuleHandle(string? lpModuleName);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
