@@ -25,7 +25,7 @@ $msi = Get-ChildItem (Join-Path $root 'packages\FolderCrypto-Setup-*.msi') |
        Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $msi) { throw '未找到 MSI 产物，请先构建 MSI。' }
 $version = '1.0.0'
-if ($msi.Name -match 'FolderCrypto-Setup-(\d+\.\d+\.\d+)') { $version = $matches[1] }
+if ($msi.Name -match 'FolderCrypto-Setup-(\d+\.\d+\.\d+(?:\.\d+)?)') { $version = $matches[1] }
 Write-Host "   using MSI: $($msi.Name)  (v$version)"
 
 # 3) embed the MSI into the bootstrapper project (build-bootstrapper embeds it)

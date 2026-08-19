@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -17,6 +18,9 @@ public sealed partial class MainWindow : Window
 {
     /// <summary>初始化阶段抑制开机自启开关事件，避免启动时误触发。</summary>
     private bool _suppressAutoStartEvent = true;
+
+    /// <summary>初始化阶段抑制「显示托盘图标」开关事件，避免初始化时误触发显示/隐藏。</summary>
+    private bool _suppressTrayIconEvent = true;
 
     public MainWindow()
     {
@@ -39,6 +43,15 @@ public sealed partial class MainWindow : Window
         AutoStartSwitch.IsChecked = StartupService.IsEnabled;
         _suppressAutoStartEvent = false;
         UpdateAutoStartUi();
+
+        // 托盘图标开关：按已保存设置初始化（抑制事件，避免初始化时误触发显示/隐藏）
+        _suppressTrayIconEvent = true;
+        ShowTrayIconSwitch.IsChecked = SettingsService.ShowTrayIcon;
+        _suppressTrayIconEvent = false;
+        UpdateTrayIconUi();
+
+        // 关于：显示当前版本号
+        VersionText.Text = "v" + UpdateService.CurrentVersion;
 
         // 主题变化时刷新设置页 UI
         ThemeService.Changed += () => UpdateSettingsUi();
@@ -270,6 +283,212 @@ public sealed partial class MainWindow : Window
                 AutoStartSwitch.IsChecked == true ? "Checked" : "Unchecked", true);
         }
         catch { }
+    }
+
+    // ---------- 系统托盘图标显示 ----------
+
+    /// <summary>开/关滑动开关：切换是否在系统托盘中显示程序图标。</summary>
+    private void OnShowTrayIconToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressTrayIconEvent) return;
+
+        bool show = ShowTrayIconSwitch.IsChecked == true;
+        SettingsService.ShowTrayIcon = show;
+
+        if (show)
+        {
+            // 打开后立即显示托盘图标
+            App.ShowTrayIcon();
+        }
+        else
+        {
+            // 关闭后立即隐藏托盘图标
+            App.HideTrayIcon();
+        }
+
+        UpdateTrayIconUi();
+    }
+
+    private void UpdateTrayIconUi()
+    {
+        UpdateTrayIconToggleVisuals();
+    }
+
+    /// <summary>同步“开/关”滑动开关外观：通过 VisualStateManager 切换旋钮位置与开/关文字。</summary>
+    private void UpdateTrayIconToggleVisuals()
+    {
+        try
+        {
+            VisualStateManager.GoToState(ShowTrayIconSwitch,
+                ShowTrayIconSwitch.IsChecked == true ? "Checked" : "Unchecked", true);
+        }
+        catch { }
+    }
+
+    // ---------- 软件更新 ----------
+
+    /// <summary>「检查更新」按钮：查询 GitHub Releases 最新版本并给出下载入口。</summary>
+    private async void OnCheckUpdate(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        UpdateStatusText.Text = "正在检查更新…";
+        try
+        {
+            var result = await UpdateService.CheckAsync();
+
+            if (result.CheckFailed)
+            {
+                UpdateStatusText.Text = "检查更新失败，请检查网络连接后重试。";
+                return;
+            }
+            if (result.NoRelease)
+            {
+                UpdateStatusText.Text = "发布仓库暂无可用版本。";
+                return;
+            }
+            if (!result.Available)
+            {
+                UpdateStatusText.Text = $"当前已是最新版本（v{UpdateService.CurrentVersion}）。";
+                return;
+            }
+
+            UpdateStatusText.Text = $"发现新版本 v{result.LatestVersion}。";
+            await PromptUpdateAsync(result);
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>弹窗询问用户如何处理新版本。</summary>
+    private async Task PromptUpdateAsync(UpdateCheckResult result)
+    {
+        var content = new Microsoft.UI.Xaml.Controls.StackPanel { Spacing = 12, Width = 380 };
+        content.Children.Add(new TextBlock
+        {
+            Text = $"当前版本：v{UpdateService.CurrentVersion}　→　最新版本：v{result.LatestVersion}",
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        if (!string.IsNullOrEmpty(result.Notes))
+        {
+            var notes = new TextBlock
+            {
+                Text = result.Notes,
+                TextWrapping = TextWrapping.Wrap,
+                MaxHeight = 220
+            };
+            ScrollViewer.SetVerticalScrollBarVisibility(notes, ScrollBarVisibility.Auto);
+            content.Children.Add(notes);
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "发现新版本",
+            Content = content,
+            PrimaryButtonText = "下载更新",
+            SecondaryButtonText = "前往发布页",
+            CloseButtonText = "稍后再说",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content?.XamlRoot
+        };
+
+        if (dialog.XamlRoot == null) return;
+
+        var choice = await dialog.ShowAsync();
+        if (choice == ContentDialogResult.Primary)
+        {
+            await DownloadAndInstallAsync(result);
+        }
+        else if (choice == ContentDialogResult.Secondary)
+        {
+            OpenUrl(result.ReleasePageUrl ?? "https://github.com/wangshanghai240/FolderCrypto/releases");
+        }
+    }
+
+    /// <summary>下载安装包（显示不确定进度对话框），完成后启动安装或打开下载目录。</summary>
+    private async Task DownloadAndInstallAsync(UpdateCheckResult result)
+    {
+        if (string.IsNullOrEmpty(result.DownloadUrl))
+        {
+            // 没有找到安装包附件，引导用户去发布页下载
+            OpenUrl(result.ReleasePageUrl ?? "https://github.com/wangshanghai240/FolderCrypto/releases");
+            return;
+        }
+
+        var progress = new ContentDialog
+        {
+            Title = "正在下载更新",
+            Content = new Microsoft.UI.Xaml.Controls.StackPanel
+            {
+                Spacing = 12,
+                Children =
+                {
+                    new ProgressRing { IsActive = true, Width = 48, Height = 48 },
+                    new TextBlock
+                    {
+                        Text = $"正在下载 v{result.LatestVersion} 安装包到「下载」目录…",
+                        TextWrapping = TextWrapping.Wrap
+                    }
+                }
+            },
+            CloseButtonText = "取消",
+            XamlRoot = Content?.XamlRoot
+        };
+        if (progress.XamlRoot == null) return;
+
+        string url = result.DownloadUrl;
+        string fileName = url.EndsWith(".msi", StringComparison.OrdinalIgnoreCase)
+            ? $"FolderCrypto-Setup-{result.LatestVersion}-x64.msi"
+            : url.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                ? $"FolderCrypto-Setup-{result.LatestVersion}-x64.exe"
+                : $"FolderCrypto-便携版-{result.LatestVersion}.zip";
+
+        // 模态显示下载进度对话框，同时后台下载；用户点「取消」关闭对话框即中止
+        var dialogClosed = new TaskCompletionSource<bool>();
+        progress.Closed += (s, ev) => dialogClosed.TrySetResult(true);
+        _ = progress.ShowAsync();
+
+        var downloadTask = UpdateService.DownloadAsync(url, fileName);
+        var finished = await Task.WhenAny(dialogClosed.Task, downloadTask);
+        if (finished == dialogClosed.Task)
+        {
+            UpdateStatusText.Text = "已取消下载。";
+            return;
+        }
+
+        var (path, error) = await downloadTask;
+        try { progress.Hide(); } catch { }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            UpdateStatusText.Text = $"下载失败：{error ?? "未知错误"}。可前往发布页手动下载。";
+            return;
+        }
+
+        UpdateStatusText.Text = $"已下载安装包：{path}";
+        if (path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            // 便携版 ZIP：打开下载目录由用户自行解压
+            OpenExplorer(System.IO.Path.GetDirectoryName(path));
+        }
+        else
+        {
+            // EXE / MSI 安装包：直接启动（会触发 UAC/安装向导）
+            UpdateService.Launch(path);
+        }
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+    }
+
+    private static void OpenExplorer(string? dir)
+    {
+        if (string.IsNullOrEmpty(dir)) return;
+        try { Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true }); } catch { }
     }
 
     private void UpdateAccentPreview()

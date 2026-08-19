@@ -158,8 +158,9 @@ $iconId = 'appIcon'
 
 $version = '1.0.0'
 $manifestVer = Get-Content (Join-Path $PSScriptRoot '..\FolderCrypto.App\Package.appxmanifest') -Raw
-if ($manifestVer -match 'Version="(\d+)\.(\d+)\.(\d+)') {
+if ($manifestVer -match 'Version="(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?"') {
     $version = "$($matches[1]).$($matches[2]).$($matches[3])"
+    if ($matches[4]) { $version += ".$($matches[4])" }
 }
 $upgradeCode = [guid]::new([System.Security.Cryptography.MD5]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes('FolderCrypto.App.UpgradeCode'))).ToString('B').ToUpperInvariant()
 

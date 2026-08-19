@@ -65,7 +65,10 @@ powershell -ExecutionPolicy Bypass -File (Join-Path $root 'wix\gen-wxs.ps1') -So
 $uiWsx = Join-Path $root 'wix\ui.wxs'
 $version = '1.0.0'
 $manifest = Get-Content (Join-Path $root 'FolderCrypto.App\Package.appxmanifest') -Raw
-if ($manifest -match 'Version="(\d+)\.(\d+)\.(\d+)') { $version = "$($matches[1]).$($matches[2]).$($matches[3])" }
+if ($manifest -match 'Version="(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?"') {
+    $version = "$($matches[1]).$($matches[2]).$($matches[3])"
+    if ($matches[4]) { $version += ".$($matches[4])" }
+}
 $outMsi = Join-Path $root "packages\FolderCrypto-Setup-$version-x64.msi"
 $outFile = [System.IO.Path]::GetFileNameWithoutExtension($outMsi)   # 保持 FolderCrypto-Setup-1.0.14-x64
 $outDir  = [System.IO.Path]::GetDirectoryName($outMsi)

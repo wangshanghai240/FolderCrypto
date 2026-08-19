@@ -8,6 +8,58 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- 开/关滑动开关模板：开启=强调色底（默认蓝），关闭=灰色底。供设置页多个开关复用 -->
+            <ControlTemplate x:Key="SwitchToggleTemplate" TargetType="ToggleButton">
+                <Grid>
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup x:Name="CheckStates">
+                            <VisualStateGroup.Transitions>
+                                <VisualTransition To="Checked" GeneratedDuration="0:0:0.18"/>
+                                <VisualTransition To="Unchecked" GeneratedDuration="0:0:0.18"/>
+                            </VisualStateGroup.Transitions>
+                            <VisualState x:Name="Checked">
+                                <VisualState.Setters>
+                                    <Setter Target="OnLabel.Visibility" Value="Visible"/>
+                                    <Setter Target="OffLabel.Visibility" Value="Collapsed"/>
+                                    <Setter Target="KnobShift.X" Value="30"/>
+                                    <Setter Target="Track.Background" Value="{ThemeResource AccentFillColorDefaultBrush}"/>
+                                    <Setter Target="Track.BorderBrush" Value="{ThemeResource AccentFillColorDefaultBrush}"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="Unchecked">
+                                <VisualState.Setters>
+                                    <Setter Target="OnLabel.Visibility" Value="Collapsed"/>
+                                    <Setter Target="OffLabel.Visibility" Value="Visible"/>
+                                    <Setter Target="KnobShift.X" Value="0"/>
+                                    <Setter Target="Track.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/>
+                                    <Setter Target="Track.BorderBrush" Value="{ThemeResource ControlStrokeColorSecondaryBrush}"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+
+                    <Border x:Name="Track"
+                            Width="58" Height="28" CornerRadius="14"
+                            BorderBrush="{ThemeResource ControlStrokeColorSecondaryBrush}" BorderThickness="1.5"
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="OnLabel" Text="开" FontSize="11"
+                               Foreground="White" VerticalAlignment="Center"
+                               HorizontalAlignment="Left" Margin="10,0,0,0"
+                               IsHitTestVisible="False"/>
+                    <TextBlock x:Name="OffLabel" Text="关" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"
+                               HorizontalAlignment="Right" Margin="0,0,10,0"
+                               IsHitTestVisible="False"/>
+                    <Ellipse x:Name="Knob" Width="20" Height="20" Fill="White"
+                             HorizontalAlignment="Left" VerticalAlignment="Center"
+                             Margin="4,0,0,0" IsHitTestVisible="False">
+                        <Ellipse.RenderTransform>
+                            <TranslateTransform x:Name="KnobShift"/>
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                </Grid>
+            </ControlTemplate>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

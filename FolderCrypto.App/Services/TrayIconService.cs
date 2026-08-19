@@ -40,6 +40,15 @@ public static class TrayIconService
 
     private static IntPtr _hMenu = IntPtr.Zero;
 
+    // 托盘图标提示文字与「任务栏重建」广播消息（Explorer 重启后恢复图标用）。
+    private static string _tooltip = "";
+    private static uint _taskbarCreatedMsg;
+
+    // 开机自启时托盘区未就绪的自动重试（60 × 500ms ≈ 30 秒）。
+    private const int MaxTrayAddRetries = 60;
+    private static DispatcherQueueTimer? _retryTimer;
+    private static int _retryCount;
+
     /// <summary>显示托盘图标。在主 UI 线程调用。</summary>
     public static void Show(DispatcherQueue dispatcher, string tooltip, string iconPath, Action onOpenSettings, Action onExit)
     {
@@ -47,9 +56,13 @@ public static class TrayIconService
         _dispatcher = dispatcher;
         _onOpenSettings = onOpenSettings;
         _onExit = onExit;
+        _tooltip = tooltip;
 
         _hwnd = CreateMessageWindow();
         if (_hwnd == IntPtr.Zero) return;
+
+        // 注册「任务栏重建」系统广播消息，Explorer 重启后托盘区重建时能自动重新添加图标。
+        _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
 
         // 加载托盘图标（32x32）
         _icon = LoadImage(IntPtr.Zero, iconPath, 1 /*IMAGE_ICON*/, 32, 32, 0x0010 /*LR_LOADFROMFILE*/);
@@ -58,6 +71,64 @@ public static class TrayIconService
             _icon = LoadIcon(IntPtr.Zero, (IntPtr)32512 /*IDI_APPLICATION*/);
         }
 
+        _visible = _hwnd != IntPtr.Zero;
+
+        // 添加托盘图标；开机自启时托盘区可能尚未就绪，NIM_ADD 失败会自动重试。
+        TryAddIcon();
+    }
+
+    /// <summary>
+    /// 添加/重新添加托盘图标。若 Shell_NotifyIcon(NIM_ADD) 失败（常见于开机自启时
+    /// Explorer 的托盘区尚未初始化完成，此时图标会静默丢失），则自动定时重试，
+    /// 直到成功或达到最大重试次数。
+    /// </summary>
+    private static void TryAddIcon()
+    {
+        if (!_visible || _hwnd == IntPtr.Zero) return;
+
+        var nid = BuildNid();
+        if (Shell_NotifyIcon(NIM_ADD, ref nid))
+        {
+            StopRetry();
+            return;
+        }
+
+        // 添加失败：启动重试计时器（仅在首次失败时创建）
+        if (_retryTimer == null && _dispatcher != null)
+        {
+            _retryCount = 0;
+            _retryTimer = _dispatcher.CreateTimer();
+            _retryTimer.Interval = TimeSpan.FromMilliseconds(500);
+            _retryTimer.IsRepeating = true;
+            _retryTimer.Tick += (s, e) =>
+            {
+                if (!_visible || ++_retryCount > MaxTrayAddRetries)
+                {
+                    StopRetry();
+                    return;
+                }
+                var retryNid = BuildNid();
+                if (Shell_NotifyIcon(NIM_ADD, ref retryNid))
+                {
+                    StopRetry();
+                }
+            };
+            _retryTimer.Start();
+        }
+    }
+
+    private static void StopRetry()
+    {
+        if (_retryTimer != null)
+        {
+            _retryTimer.Stop();
+            _retryTimer = null;
+        }
+    }
+
+    /// <summary>基于当前状态构造全新的 NOTIFYICONDATA（每次调用返回新实例，避免共享结构体状态）。</summary>
+    private static NOTIFYICONDATA BuildNid()
+    {
         var nid = new NOTIFYICONDATA();
         nid.cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATA>();
         nid.hWnd = _hwnd;
@@ -66,10 +137,8 @@ public static class TrayIconService
         nid.uCallbackMessage = WM_TRAYICON;
         nid.hIcon = _icon;
         nid.szTip = new char[128];
-        tooltip.CopyTo(0, nid.szTip, 0, Math.Min(tooltip.Length, nid.szTip.Length - 1));
-
-        _ = Shell_NotifyIcon(NIM_ADD, ref nid);
-        _visible = _hwnd != IntPtr.Zero;
+        _tooltip.CopyTo(0, nid.szTip, 0, Math.Min(_tooltip.Length, nid.szTip.Length - 1));
+        return nid;
     }
 
     /// <summary>隐藏并移除托盘图标。</summary>
@@ -82,6 +151,7 @@ public static class TrayIconService
         nid.uID = 1;
         _ = Shell_NotifyIcon(NIM_DELETE, ref nid);
         _visible = false;
+        StopRetry();
 
         if (_hMenu != IntPtr.Zero) { DestroyMenu(_hMenu); _hMenu = IntPtr.Zero; }
         if (_icon != IntPtr.Zero && _icon != LoadIcon(IntPtr.Zero, (IntPtr)32512)) { /* 由系统在 destroy 时清理，见下 */ }
@@ -107,6 +177,11 @@ public static class TrayIconService
         {
             int id = (short)(wParam.ToInt64() & 0xFFFF);
             DispatchCommand(id);
+        }
+        else if (_taskbarCreatedMsg != 0 && msg == _taskbarCreatedMsg)
+        {
+            // Explorer 重启后托盘区重建：重新添加图标。
+            TryAddIcon();
         }
         else if (msg == 0x0010 /*WM_CLOSE*/)
         {
@@ -168,7 +243,14 @@ public static class TrayIconService
     }
 
     private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-    private static readonly WndProcDelegate WndProcCallback = (h, m, w, l) => { WndProc(h, m, w, l); return IntPtr.Zero; };
+    private static readonly WndProcDelegate WndProcCallback = (h, m, w, l) =>
+    {
+        // WM_NCCREATE 必须返回 TRUE(1)，否则 CreateWindowEx 会直接失败返回 NULL，
+        // 导致消息窗口建不出来、Shell_NotifyIcon 永远加不上托盘图标。
+        if (m == 0x0081 /*WM_NCCREATE*/) return new IntPtr(1);
+        WndProc(h, m, w, l);
+        return IntPtr.Zero;
+    };
 
     // ---------- Win32 定义 ----------
 
@@ -222,6 +304,9 @@ public static class TrayIconService
 
     [DllImport("user32.dll")]
     private static extern uint RegisterClass(ref WNDCLASS lpWndClass);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint RegisterWindowMessage(string lpString);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr CreateWindowEx(uint dwExStyle, string lpClassName, string lpWindowName,

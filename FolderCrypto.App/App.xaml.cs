@@ -27,6 +27,8 @@ public partial class App : Application
 
         // 初始化并应用主题（浅色/深色/自定义）。
         ThemeService.Init();
+        // 初始化应用设置（如是否显示系统托盘图标）。
+        SettingsService.Init();
 
         // 若已经有实例在运行，则把命令行指令转发给已有实例并退出，实现单实例。
         if (SingleInstanceManager.TryForwardOrBecomePrimary(Environment.GetCommandLineArgs(), OnShellCommand))
@@ -85,6 +87,9 @@ public partial class App : Application
     /// <summary>进入后台托盘常驻模式（显示托盘图标；若已显示则幂等）。</summary>
     private static void EnterBackgroundTray()
     {
+        // 用户关闭「显示系统托盘图标」时不显示图标，仅保持后台静默常驻。
+        if (!SettingsService.ShowTrayIcon) return;
+
         if (_trayShown) return;
         _trayShown = true;
 
@@ -388,4 +393,12 @@ public partial class App : Application
 
     /// <summary>立即显示系统托盘图标（用户开启“随系统启动”后进入后台常驻，无需等下次登录）。</summary>
     public static void ShowTrayIcon() => EnterBackgroundTray();
+
+    /// <summary>隐藏系统托盘图标（用户关闭「显示系统托盘图标」时调用）。</summary>
+    public static void HideTrayIcon()
+    {
+        if (!_trayShown) return;
+        _trayShown = false;
+        try { TrayIconService.Hide(); } catch { }
+    }
 }

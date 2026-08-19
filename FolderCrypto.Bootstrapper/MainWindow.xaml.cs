@@ -15,8 +15,16 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         PathBox.Text = DefaultInstallDir();
-        VersionText.Text = "v" + (GetType().Assembly.GetName().Version?.ToString(3) ?? "1.0.14") +
-                           " · 跟随系统深浅色";
+        VersionText.Text = "v" + DisplayVersion() + " · 跟随系统深浅色";
+    }
+
+    /// <summary>显示程序集版本（含第 4 段修订号，如 1.0.14.2）。</summary>
+    private static string DisplayVersion()
+    {
+        var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        if (v != null && v.Major > 0)
+            return v.Revision >= 0 ? v.ToString(4) : v.ToString(3);
+        return "1.0.14.3";
     }
 
     private static string DefaultInstallDir() =>

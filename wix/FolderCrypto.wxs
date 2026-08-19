@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="FolderCrypto 文件夹加密" Manufacturer="FolderCrypto"
-           Version="1.0.14" UpgradeCode="{D2780C54-98D7-6A59-9749-86FC9194DFB1}"
+           Version="1.0.14.3" UpgradeCode="{D2780C54-98D7-6A59-9749-86FC9194DFB1}"
            Scope="perMachine" Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="已安装的版本更新，请勿降级。" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
@@ -1026,161 +1026,206 @@
     <Component Id="cmp_245" Directory="INSTALLFOLDER" Guid="{266E58BC-208F-6DCF-F695-548CEDE1762C}">
       <File Id="file_245" Source="C:\Temp\_wix_src\System.ComponentModel.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_246" Directory="INSTALLFOLDER" Guid="{E7C691B3-79AF-F2BD-B53C-B6708A123C54}">
-      <File Id="file_246" Source="C:\Temp\_wix_src\System.Diagnostics.StackTrace.dll" KeyPath="yes" />
+    <Component Id="cmp_246" Directory="INSTALLFOLDER" Guid="{EE226120-BB61-9A15-4B27-CE94E3FF7109}">
+      <File Id="file_246" Source="C:\Temp\_wix_src\System.ComponentModel.Primitives.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_247" Directory="INSTALLFOLDER" Guid="{1A563F76-D6D2-960F-483D-05170E05F5A5}">
-      <File Id="file_247" Source="C:\Temp\_wix_src\System.IO.Compression.dll" KeyPath="yes" />
+    <Component Id="cmp_247" Directory="INSTALLFOLDER" Guid="{A4BDD896-A317-9409-3414-DC0825634E8A}">
+      <File Id="file_247" Source="C:\Temp\_wix_src\System.ComponentModel.TypeConverter.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_248" Directory="INSTALLFOLDER" Guid="{49656969-D0D8-A957-D34E-87917C431F91}">
-      <File Id="file_248" Source="C:\Temp\_wix_src\System.IO.Compression.Native.dll" KeyPath="yes" />
+    <Component Id="cmp_248" Directory="INSTALLFOLDER" Guid="{569C1CD0-74E6-AFE0-8EE7-D55CC8B28CA2}">
+      <File Id="file_248" Source="C:\Temp\_wix_src\System.Diagnostics.DiagnosticSource.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_249" Directory="INSTALLFOLDER" Guid="{8DB90750-4CAA-D9A7-2A1C-B9562D8F68BC}">
-      <File Id="file_249" Source="C:\Temp\_wix_src\System.IO.FileSystem.AccessControl.dll" KeyPath="yes" />
+    <Component Id="cmp_249" Directory="INSTALLFOLDER" Guid="{C102BB26-F056-FC44-F351-26504B459EEE}">
+      <File Id="file_249" Source="C:\Temp\_wix_src\System.Diagnostics.Process.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_250" Directory="INSTALLFOLDER" Guid="{6ACA106F-40C6-5AD6-7C49-8E6697D9BAD6}">
-      <File Id="file_250" Source="C:\Temp\_wix_src\System.IO.MemoryMappedFiles.dll" KeyPath="yes" />
+    <Component Id="cmp_250" Directory="INSTALLFOLDER" Guid="{E7C691B3-79AF-F2BD-B53C-B6708A123C54}">
+      <File Id="file_250" Source="C:\Temp\_wix_src\System.Diagnostics.StackTrace.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_251" Directory="INSTALLFOLDER" Guid="{99DFE829-7051-D91B-07F8-E6A98F9FBD0E}">
-      <File Id="file_251" Source="C:\Temp\_wix_src\System.IO.Pipes.dll" KeyPath="yes" />
+    <Component Id="cmp_251" Directory="INSTALLFOLDER" Guid="{B78EB75E-7C9A-4503-BC1A-381454408C5A}">
+      <File Id="file_251" Source="C:\Temp\_wix_src\System.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_252" Directory="INSTALLFOLDER" Guid="{B180A2DE-8A9D-1622-F4D4-ECFCC3869D75}">
-      <File Id="file_252" Source="C:\Temp\_wix_src\System.Linq.dll" KeyPath="yes" />
+    <Component Id="cmp_252" Directory="INSTALLFOLDER" Guid="{8E3D2426-9B2F-BCEC-2326-7416BA1AD518}">
+      <File Id="file_252" Source="C:\Temp\_wix_src\System.Formats.Asn1.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_253" Directory="INSTALLFOLDER" Guid="{35473711-8CCC-9A46-A61A-6CFCABE8BAA6}">
-      <File Id="file_253" Source="C:\Temp\_wix_src\System.Linq.Expressions.dll" KeyPath="yes" />
+    <Component Id="cmp_253" Directory="INSTALLFOLDER" Guid="{1A563F76-D6D2-960F-483D-05170E05F5A5}">
+      <File Id="file_253" Source="C:\Temp\_wix_src\System.IO.Compression.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_254" Directory="INSTALLFOLDER" Guid="{668FB81A-2572-C96D-EA68-2BAE9631F926}">
-      <File Id="file_254" Source="C:\Temp\_wix_src\System.Memory.dll" KeyPath="yes" />
+    <Component Id="cmp_254" Directory="INSTALLFOLDER" Guid="{49656969-D0D8-A957-D34E-87917C431F91}">
+      <File Id="file_254" Source="C:\Temp\_wix_src\System.IO.Compression.Native.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_255" Directory="INSTALLFOLDER" Guid="{AF3FDE7A-2D94-88F0-F5B8-3882CD2C34EC}">
-      <File Id="file_255" Source="C:\Temp\_wix_src\System.ObjectModel.dll" KeyPath="yes" />
+    <Component Id="cmp_255" Directory="INSTALLFOLDER" Guid="{8DB90750-4CAA-D9A7-2A1C-B9562D8F68BC}">
+      <File Id="file_255" Source="C:\Temp\_wix_src\System.IO.FileSystem.AccessControl.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_256" Directory="INSTALLFOLDER" Guid="{ABCCA31D-2DD9-4862-C9D4-A1126395DD05}">
-      <File Id="file_256" Source="C:\Temp\_wix_src\System.Private.CoreLib.dll" KeyPath="yes" />
+    <Component Id="cmp_256" Directory="INSTALLFOLDER" Guid="{6ACA106F-40C6-5AD6-7C49-8E6697D9BAD6}">
+      <File Id="file_256" Source="C:\Temp\_wix_src\System.IO.MemoryMappedFiles.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_257" Directory="INSTALLFOLDER" Guid="{10AEB3FB-A175-7622-096A-BD56B455F4DE}">
-      <File Id="file_257" Source="C:\Temp\_wix_src\System.Private.Uri.dll" KeyPath="yes" />
+    <Component Id="cmp_257" Directory="INSTALLFOLDER" Guid="{99DFE829-7051-D91B-07F8-E6A98F9FBD0E}">
+      <File Id="file_257" Source="C:\Temp\_wix_src\System.IO.Pipes.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_258" Directory="INSTALLFOLDER" Guid="{0019902A-ED36-98CE-6580-8FF124C333BE}">
-      <File Id="file_258" Source="C:\Temp\_wix_src\System.Reflection.Metadata.dll" KeyPath="yes" />
+    <Component Id="cmp_258" Directory="INSTALLFOLDER" Guid="{B180A2DE-8A9D-1622-F4D4-ECFCC3869D75}">
+      <File Id="file_258" Source="C:\Temp\_wix_src\System.Linq.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_259" Directory="INSTALLFOLDER" Guid="{D52ABDF5-AC34-D77B-B3C9-B56F1F455588}">
-      <File Id="file_259" Source="C:\Temp\_wix_src\System.Runtime.InteropServices.dll" KeyPath="yes" />
+    <Component Id="cmp_259" Directory="INSTALLFOLDER" Guid="{35473711-8CCC-9A46-A61A-6CFCABE8BAA6}">
+      <File Id="file_259" Source="C:\Temp\_wix_src\System.Linq.Expressions.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_260" Directory="INSTALLFOLDER" Guid="{997223B5-2623-7C55-1CC6-B2FA0FE8C704}">
-      <File Id="file_260" Source="C:\Temp\_wix_src\System.Security.AccessControl.dll" KeyPath="yes" />
+    <Component Id="cmp_260" Directory="INSTALLFOLDER" Guid="{668FB81A-2572-C96D-EA68-2BAE9631F926}">
+      <File Id="file_260" Source="C:\Temp\_wix_src\System.Memory.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_261" Directory="INSTALLFOLDER" Guid="{F0BB4FF9-868E-7CDF-9615-2EDFDAE5CD8E}">
-      <File Id="file_261" Source="C:\Temp\_wix_src\System.Security.Claims.dll" KeyPath="yes" />
+    <Component Id="cmp_261" Directory="INSTALLFOLDER" Guid="{95956C61-04FF-C4B0-6A22-38F70D49A920}">
+      <File Id="file_261" Source="C:\Temp\_wix_src\System.Net.Http.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_262" Directory="INSTALLFOLDER" Guid="{76F9E275-BF04-A352-DD03-287FC7ACEF02}">
-      <File Id="file_262" Source="C:\Temp\_wix_src\System.Security.Cryptography.dll" KeyPath="yes" />
+    <Component Id="cmp_262" Directory="INSTALLFOLDER" Guid="{558DE8C3-0837-DDEC-C230-CBCD07DAA15D}">
+      <File Id="file_262" Source="C:\Temp\_wix_src\System.Net.NameResolution.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_263" Directory="INSTALLFOLDER" Guid="{AC05731E-DF7C-AFB5-82E7-8A91BCB5E4C2}">
-      <File Id="file_263" Source="C:\Temp\_wix_src\System.Security.Principal.Windows.dll" KeyPath="yes" />
+    <Component Id="cmp_263" Directory="INSTALLFOLDER" Guid="{6D71C8F1-8A87-A0A4-54F7-C867E2CB406C}">
+      <File Id="file_263" Source="C:\Temp\_wix_src\System.Net.NetworkInformation.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_264" Directory="INSTALLFOLDER" Guid="{FF8E55F2-15D3-B1A7-2F59-560B03377E08}">
-      <File Id="file_264" Source="C:\Temp\_wix_src\System.Text.Encodings.Web.dll" KeyPath="yes" />
+    <Component Id="cmp_264" Directory="INSTALLFOLDER" Guid="{EA23455C-3356-6D2B-8E27-02922EA1B8FC}">
+      <File Id="file_264" Source="C:\Temp\_wix_src\System.Net.Primitives.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_265" Directory="INSTALLFOLDER" Guid="{3F4783F4-CF81-9FD7-6026-8CD1CECEC00F}">
-      <File Id="file_265" Source="C:\Temp\_wix_src\System.Text.Json.dll" KeyPath="yes" />
+    <Component Id="cmp_265" Directory="INSTALLFOLDER" Guid="{B0F48965-2736-D61C-618C-C9FF4489DE5D}">
+      <File Id="file_265" Source="C:\Temp\_wix_src\System.Net.Quic.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_266" Directory="dir_82" Guid="{D483D7E3-B2C5-E66F-E385-1B6CFA93E751}">
-      <File Id="file_266" Source="C:\Temp\_wix_src\ta-IN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_266" Directory="INSTALLFOLDER" Guid="{FBB8BDAC-0D20-31A1-B917-54BC2A7BF586}">
+      <File Id="file_266" Source="C:\Temp\_wix_src\System.Net.Security.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_267" Directory="dir_82" Guid="{02E6ADE6-7C89-28BE-73D3-F0E2413332BC}">
-      <File Id="file_267" Source="C:\Temp\_wix_src\ta-IN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_267" Directory="INSTALLFOLDER" Guid="{631D35AE-DC51-EB70-BF78-10D17666B5B0}">
+      <File Id="file_267" Source="C:\Temp\_wix_src\System.Net.Sockets.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_268" Directory="dir_83" Guid="{D5F322E1-1B4A-A9E2-4F71-EA0397287158}">
-      <File Id="file_268" Source="C:\Temp\_wix_src\te-IN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_268" Directory="INSTALLFOLDER" Guid="{AF3FDE7A-2D94-88F0-F5B8-3882CD2C34EC}">
+      <File Id="file_268" Source="C:\Temp\_wix_src\System.ObjectModel.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_269" Directory="dir_83" Guid="{5B204DF6-98CB-4C02-F93B-8C84C82A3554}">
-      <File Id="file_269" Source="C:\Temp\_wix_src\te-IN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_269" Directory="INSTALLFOLDER" Guid="{ABCCA31D-2DD9-4862-C9D4-A1126395DD05}">
+      <File Id="file_269" Source="C:\Temp\_wix_src\System.Private.CoreLib.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_270" Directory="dir_84" Guid="{3BBDC2BB-A32B-C44F-A8B1-73168E4FCF17}">
-      <File Id="file_270" Source="C:\Temp\_wix_src\th-TH\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_270" Directory="INSTALLFOLDER" Guid="{10AEB3FB-A175-7622-096A-BD56B455F4DE}">
+      <File Id="file_270" Source="C:\Temp\_wix_src\System.Private.Uri.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_271" Directory="dir_84" Guid="{0BB42F0B-A95A-704C-B846-EDC8B561D56A}">
-      <File Id="file_271" Source="C:\Temp\_wix_src\th-TH\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_271" Directory="INSTALLFOLDER" Guid="{0019902A-ED36-98CE-6580-8FF124C333BE}">
+      <File Id="file_271" Source="C:\Temp\_wix_src\System.Reflection.Metadata.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_272" Directory="dir_85" Guid="{4F7D97DC-9007-709A-1C2F-BFADB0E5AD2D}">
-      <File Id="file_272" Source="C:\Temp\_wix_src\tr-TR\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_272" Directory="INSTALLFOLDER" Guid="{D52ABDF5-AC34-D77B-B3C9-B56F1F455588}">
+      <File Id="file_272" Source="C:\Temp\_wix_src\System.Runtime.InteropServices.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_273" Directory="dir_85" Guid="{2A202194-7C73-D803-D800-022485A4D02B}">
-      <File Id="file_273" Source="C:\Temp\_wix_src\tr-TR\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_273" Directory="INSTALLFOLDER" Guid="{987FDF37-8E4D-482F-BAFF-FEB625A37C64}">
+      <File Id="file_273" Source="C:\Temp\_wix_src\System.Runtime.Numerics.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_274" Directory="dir_86" Guid="{5D58698C-41A8-B117-B337-62914C341EBE}">
-      <File Id="file_274" Source="C:\Temp\_wix_src\tt-RU\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_274" Directory="INSTALLFOLDER" Guid="{997223B5-2623-7C55-1CC6-B2FA0FE8C704}">
+      <File Id="file_274" Source="C:\Temp\_wix_src\System.Security.AccessControl.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_275" Directory="dir_86" Guid="{5B09AA07-524B-2301-33FD-9B0AEF57CBEC}">
-      <File Id="file_275" Source="C:\Temp\_wix_src\tt-RU\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_275" Directory="INSTALLFOLDER" Guid="{F0BB4FF9-868E-7CDF-9615-2EDFDAE5CD8E}">
+      <File Id="file_275" Source="C:\Temp\_wix_src\System.Security.Claims.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_276" Directory="dir_87" Guid="{CF222D90-9B0D-5A31-D842-B2DEDA2C1D6E}">
-      <File Id="file_276" Source="C:\Temp\_wix_src\ug-CN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_276" Directory="INSTALLFOLDER" Guid="{76F9E275-BF04-A352-DD03-287FC7ACEF02}">
+      <File Id="file_276" Source="C:\Temp\_wix_src\System.Security.Cryptography.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_277" Directory="dir_87" Guid="{8074C355-CA63-DA88-ACA8-8AEB7100A763}">
-      <File Id="file_277" Source="C:\Temp\_wix_src\ug-CN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_277" Directory="INSTALLFOLDER" Guid="{AC05731E-DF7C-AFB5-82E7-8A91BCB5E4C2}">
+      <File Id="file_277" Source="C:\Temp\_wix_src\System.Security.Principal.Windows.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_278" Directory="dir_88" Guid="{69EC4196-A8F8-D348-5508-BC34C61C3A6F}">
-      <File Id="file_278" Source="C:\Temp\_wix_src\uk-UA\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_278" Directory="INSTALLFOLDER" Guid="{FF8E55F2-15D3-B1A7-2F59-560B03377E08}">
+      <File Id="file_278" Source="C:\Temp\_wix_src\System.Text.Encodings.Web.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_279" Directory="dir_88" Guid="{1DD37CAA-2783-8ED5-B44F-863CECDF6FD4}">
-      <File Id="file_279" Source="C:\Temp\_wix_src\uk-UA\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_279" Directory="INSTALLFOLDER" Guid="{3F4783F4-CF81-9FD7-6026-8CD1CECEC00F}">
+      <File Id="file_279" Source="C:\Temp\_wix_src\System.Text.Json.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_280" Directory="dir_89" Guid="{1E595DD4-1044-09B6-3F1E-717BB107BE64}">
-      <File Id="file_280" Source="C:\Temp\_wix_src\ur-PK\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_280" Directory="INSTALLFOLDER" Guid="{B213EA0C-B238-A102-4ACA-FD8A03019017}">
+      <File Id="file_280" Source="C:\Temp\_wix_src\System.Threading.Channels.dll" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_281" Directory="dir_89" Guid="{DF96E173-4F1C-AB06-669B-46196A6C0F70}">
-      <File Id="file_281" Source="C:\Temp\_wix_src\ur-PK\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_281" Directory="dir_82" Guid="{D483D7E3-B2C5-E66F-E385-1B6CFA93E751}">
+      <File Id="file_281" Source="C:\Temp\_wix_src\ta-IN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_282" Directory="dir_90" Guid="{B7DC3BB6-6921-F12A-8975-FC58F3E67264}">
-      <File Id="file_282" Source="C:\Temp\_wix_src\uz-Latn-UZ\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_282" Directory="dir_82" Guid="{02E6ADE6-7C89-28BE-73D3-F0E2413332BC}">
+      <File Id="file_282" Source="C:\Temp\_wix_src\ta-IN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_283" Directory="dir_90" Guid="{9D0F85D7-A8C9-742C-FBB6-D3D944A07011}">
-      <File Id="file_283" Source="C:\Temp\_wix_src\uz-Latn-UZ\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_283" Directory="dir_83" Guid="{D5F322E1-1B4A-A9E2-4F71-EA0397287158}">
+      <File Id="file_283" Source="C:\Temp\_wix_src\te-IN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_284" Directory="dir_91" Guid="{24439A7C-B1F0-3773-CF99-DDBBB2510E5A}">
-      <File Id="file_284" Source="C:\Temp\_wix_src\vi-VN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_284" Directory="dir_83" Guid="{5B204DF6-98CB-4C02-F93B-8C84C82A3554}">
+      <File Id="file_284" Source="C:\Temp\_wix_src\te-IN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_285" Directory="dir_91" Guid="{4C8A7102-1561-7153-6DD3-BFBE6D592DC0}">
-      <File Id="file_285" Source="C:\Temp\_wix_src\vi-VN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_285" Directory="dir_84" Guid="{3BBDC2BB-A32B-C44F-A8B1-73168E4FCF17}">
+      <File Id="file_285" Source="C:\Temp\_wix_src\th-TH\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_286" Directory="INSTALLFOLDER" Guid="{D86D7454-C12A-3923-088E-19FFF07E783F}">
-      <File Id="file_286" Source="C:\Temp\_wix_src\WebView2Loader.dll" KeyPath="yes" />
+    <Component Id="cmp_286" Directory="dir_84" Guid="{0BB42F0B-A95A-704C-B846-EDC8B561D56A}">
+      <File Id="file_286" Source="C:\Temp\_wix_src\th-TH\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_287" Directory="INSTALLFOLDER" Guid="{C74A0D00-BE93-8CE9-EA4A-550636F77BAB}">
-      <File Id="file_287" Source="C:\Temp\_wix_src\WindowsAppRuntime.DeploymentExtensions.OneCore.dll" KeyPath="yes" />
+    <Component Id="cmp_287" Directory="dir_85" Guid="{4F7D97DC-9007-709A-1C2F-BFADB0E5AD2D}">
+      <File Id="file_287" Source="C:\Temp\_wix_src\tr-TR\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_288" Directory="INSTALLFOLDER" Guid="{5A0D5F81-0E85-9BAE-ADA4-010BD8037D5E}">
-      <File Id="file_288" Source="C:\Temp\_wix_src\WindowsAppRuntime.png" KeyPath="yes" />
+    <Component Id="cmp_288" Directory="dir_85" Guid="{2A202194-7C73-D803-D800-022485A4D02B}">
+      <File Id="file_288" Source="C:\Temp\_wix_src\tr-TR\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_289" Directory="INSTALLFOLDER" Guid="{6B291510-0300-19CB-8B4E-77A9054AB4B0}">
-      <File Id="file_289" Source="C:\Temp\_wix_src\WindowsAppSdk.AppxDeploymentExtensions.Desktop.dll" KeyPath="yes" />
+    <Component Id="cmp_289" Directory="dir_86" Guid="{5D58698C-41A8-B117-B337-62914C341EBE}">
+      <File Id="file_289" Source="C:\Temp\_wix_src\tt-RU\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_290" Directory="INSTALLFOLDER" Guid="{F4E3F7D4-D82E-54A1-96C3-D1307FBF45F9}">
-      <File Id="file_290" Source="C:\Temp\_wix_src\WindowsAppSdk.AppxDeploymentExtensions.Desktop-EventLog-Instrumentation.dll" KeyPath="yes" />
+    <Component Id="cmp_290" Directory="dir_86" Guid="{5B09AA07-524B-2301-33FD-9B0AEF57CBEC}">
+      <File Id="file_290" Source="C:\Temp\_wix_src\tt-RU\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_291" Directory="INSTALLFOLDER" Guid="{8C276D33-D55D-3711-CEDA-520DA222B902}">
-      <File Id="file_291" Source="C:\Temp\_wix_src\WinRT.Runtime.dll" KeyPath="yes" />
+    <Component Id="cmp_291" Directory="dir_87" Guid="{CF222D90-9B0D-5A31-D842-B2DEDA2C1D6E}">
+      <File Id="file_291" Source="C:\Temp\_wix_src\ug-CN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_292" Directory="INSTALLFOLDER" Guid="{76A30F31-175F-AB2C-DE0F-DDA77FAAEBBF}">
-      <File Id="file_292" Source="C:\Temp\_wix_src\WinUIEdit.dll" KeyPath="yes" />
+    <Component Id="cmp_292" Directory="dir_87" Guid="{8074C355-CA63-DA88-ACA8-8AEB7100A763}">
+      <File Id="file_292" Source="C:\Temp\_wix_src\ug-CN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_293" Directory="INSTALLFOLDER" Guid="{90A42283-3C10-4793-BAF2-73163F902640}">
-      <File Id="file_293" Source="C:\Temp\_wix_src\wuceffectsi.dll" KeyPath="yes" />
+    <Component Id="cmp_293" Directory="dir_88" Guid="{69EC4196-A8F8-D348-5508-BC34C61C3A6F}">
+      <File Id="file_293" Source="C:\Temp\_wix_src\uk-UA\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_294" Directory="dir_92" Guid="{9C94566A-5D43-DC66-C246-AAD1EA1FE5DA}">
-      <File Id="file_294" Source="C:\Temp\_wix_src\zh-CN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_294" Directory="dir_88" Guid="{1DD37CAA-2783-8ED5-B44F-863CECDF6FD4}">
+      <File Id="file_294" Source="C:\Temp\_wix_src\uk-UA\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_295" Directory="dir_92" Guid="{0053E389-E8E3-B0A7-8658-B500863FBDFD}">
-      <File Id="file_295" Source="C:\Temp\_wix_src\zh-CN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_295" Directory="dir_89" Guid="{1E595DD4-1044-09B6-3F1E-717BB107BE64}">
+      <File Id="file_295" Source="C:\Temp\_wix_src\ur-PK\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_296" Directory="dir_93" Guid="{5D47B219-255D-8301-1ADB-5743043D223B}">
-      <File Id="file_296" Source="C:\Temp\_wix_src\zh-TW\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_296" Directory="dir_89" Guid="{DF96E173-4F1C-AB06-669B-46196A6C0F70}">
+      <File Id="file_296" Source="C:\Temp\_wix_src\ur-PK\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_297" Directory="dir_93" Guid="{22BF58A3-E9EE-B7B7-898E-1BD9328FD598}">
-      <File Id="file_297" Source="C:\Temp\_wix_src\zh-TW\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    <Component Id="cmp_297" Directory="dir_90" Guid="{B7DC3BB6-6921-F12A-8975-FC58F3E67264}">
+      <File Id="file_297" Source="C:\Temp\_wix_src\uz-Latn-UZ\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_298" Directory="dir_90" Guid="{9D0F85D7-A8C9-742C-FBB6-D3D944A07011}">
+      <File Id="file_298" Source="C:\Temp\_wix_src\uz-Latn-UZ\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_299" Directory="dir_91" Guid="{24439A7C-B1F0-3773-CF99-DDBBB2510E5A}">
+      <File Id="file_299" Source="C:\Temp\_wix_src\vi-VN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_300" Directory="dir_91" Guid="{4C8A7102-1561-7153-6DD3-BFBE6D592DC0}">
+      <File Id="file_300" Source="C:\Temp\_wix_src\vi-VN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_301" Directory="INSTALLFOLDER" Guid="{D86D7454-C12A-3923-088E-19FFF07E783F}">
+      <File Id="file_301" Source="C:\Temp\_wix_src\WebView2Loader.dll" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_302" Directory="INSTALLFOLDER" Guid="{C74A0D00-BE93-8CE9-EA4A-550636F77BAB}">
+      <File Id="file_302" Source="C:\Temp\_wix_src\WindowsAppRuntime.DeploymentExtensions.OneCore.dll" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_303" Directory="INSTALLFOLDER" Guid="{5A0D5F81-0E85-9BAE-ADA4-010BD8037D5E}">
+      <File Id="file_303" Source="C:\Temp\_wix_src\WindowsAppRuntime.png" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_304" Directory="INSTALLFOLDER" Guid="{6B291510-0300-19CB-8B4E-77A9054AB4B0}">
+      <File Id="file_304" Source="C:\Temp\_wix_src\WindowsAppSdk.AppxDeploymentExtensions.Desktop.dll" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_305" Directory="INSTALLFOLDER" Guid="{F4E3F7D4-D82E-54A1-96C3-D1307FBF45F9}">
+      <File Id="file_305" Source="C:\Temp\_wix_src\WindowsAppSdk.AppxDeploymentExtensions.Desktop-EventLog-Instrumentation.dll" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_306" Directory="INSTALLFOLDER" Guid="{8C276D33-D55D-3711-CEDA-520DA222B902}">
+      <File Id="file_306" Source="C:\Temp\_wix_src\WinRT.Runtime.dll" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_307" Directory="INSTALLFOLDER" Guid="{76A30F31-175F-AB2C-DE0F-DDA77FAAEBBF}">
+      <File Id="file_307" Source="C:\Temp\_wix_src\WinUIEdit.dll" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_308" Directory="INSTALLFOLDER" Guid="{90A42283-3C10-4793-BAF2-73163F902640}">
+      <File Id="file_308" Source="C:\Temp\_wix_src\wuceffectsi.dll" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_309" Directory="dir_92" Guid="{9C94566A-5D43-DC66-C246-AAD1EA1FE5DA}">
+      <File Id="file_309" Source="C:\Temp\_wix_src\zh-CN\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_310" Directory="dir_92" Guid="{0053E389-E8E3-B0A7-8658-B500863FBDFD}">
+      <File Id="file_310" Source="C:\Temp\_wix_src\zh-CN\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_311" Directory="dir_93" Guid="{5D47B219-255D-8301-1ADB-5743043D223B}">
+      <File Id="file_311" Source="C:\Temp\_wix_src\zh-TW\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />
+    </Component>
+    <Component Id="cmp_312" Directory="dir_93" Guid="{22BF58A3-E9EE-B7B7-898E-1BD9328FD598}">
+      <File Id="file_312" Source="C:\Temp\_wix_src\zh-TW\Microsoft.UI.Xaml.Phone.dll.mui" KeyPath="yes" />
     </Component>
     </ComponentGroup>
   </Fragment>
