@@ -126,37 +126,54 @@ public static class UpdateService
     /// </summary>
     public static async Task<(string? Path, string? Error)> DownloadAsync(string url, string fileName)
     {
-        try
-        {
-            string downloads = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Downloads");
-            Directory.CreateDirectory(downloads);
-            string dest = Path.Combine(downloads, fileName);
+        string downloads = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Downloads");
+        Directory.CreateDirectory(downloads);
+        string dest = Path.Combine(downloads, fileName);
 
-            // 安装包可能上百 MB：不能用短超时一次性读入内存（否则大文件必超时失败）。
-            // 改为「流式」下载，整个下载过程放宽到 10 分钟，并边下边写盘。
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("FolderCrypto-UpdateChecker/1.0");
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
-            using var resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode)
-                return (null, $"HTTP {(int)resp.StatusCode}");
-
-            await using var src = await resp.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
-            await using var dst = File.Create(dest);
-            await src.CopyToAsync(dst, cts.Token).ConfigureAwait(false);
-            return (dest, null);
-        }
-        catch (OperationCanceledException)
+        // 安装包可能上百 MB：流式下载边下边写盘，整体放宽到 10 分钟。
+        // 失败时最多重试 2 次（SSL/握手/证书校验等瞬时错误常在重试后成功）。
+        Exception? last = null;
+        for (int attempt = 1; attempt <= 2; attempt++)
         {
-            return (null, "下载超时，请检查网络后重试");
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("FolderCrypto-UpdateChecker/1.0");
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                using var resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    return (null, $"HTTP {(int)resp.StatusCode}");
+
+                await using var src = await resp.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
+                await using var dst = File.Create(dest);
+                await src.CopyToAsync(dst, cts.Token).ConfigureAwait(false);
+                return (dest, null);
+            }
+            catch (OperationCanceledException)
+            {
+                return (null, "下载超时，请检查网络后重试");
+            }
+            catch (Exception ex)
+            {
+                last = ex;   // 最后再尝试一次
+            }
         }
-        catch (Exception ex)
+        return (null, DescribeError(last));
+    }
+
+    /// <summary>拼接异常链消息（便于定位 SSL/证书/协议等具体原因）。</summary>
+    private static string DescribeError(Exception? ex)
+    {
+        if (ex == null) return "未知错误";
+        var parts = new List<string>();
+        for (var e = ex; e != null && parts.Count < 4; e = e.InnerException)
         {
-            return (null, ex.Message);
+            if (!string.IsNullOrWhiteSpace(e.Message)) parts.Add(e.Message);
         }
+        return string.Join(" → ", parts);
     }
 
     /// <summary>启动安装包（MSI 会用系统默认方式打开并触发 UAC/安装向导）。</summary>

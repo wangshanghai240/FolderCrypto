@@ -463,7 +463,8 @@ public sealed partial class MainWindow : Window
 
         if (string.IsNullOrEmpty(path))
         {
-            UpdateStatusText.Text = $"下载失败：{error ?? "未知错误"}。可前往发布页手动下载。";
+            UpdateStatusText.Text = $"下载失败：{error ?? "未知错误"}。";
+            await ShowDownloadFailedDialogAsync(result, error);
             return;
         }
 
@@ -483,6 +484,31 @@ public sealed partial class MainWindow : Window
     private static void OpenUrl(string url)
     {
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+    }
+
+    /// <summary>下载失败时弹出对话框，可一键前往发布页用浏览器手动下载（可绕开应用内 TLS 问题）。</summary>
+    private async Task ShowDownloadFailedDialogAsync(UpdateCheckResult result, string? error)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "下载失败",
+            Content = new TextBlock
+            {
+                Text = $"未能自动下载安装包。\n\n原因：{error ?? "未知错误"}\n\n你可以前往 GitHub 发布页手动下载并安装。",
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = "前往发布页",
+            CloseButtonText = "关闭",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content?.XamlRoot
+        };
+        if (dialog.XamlRoot == null) return;
+
+        var choice = await dialog.ShowAsync();
+        if (choice == ContentDialogResult.Primary)
+        {
+            OpenUrl(result.ReleasePageUrl ?? "https://github.com/wangshanghai240/FolderCrypto/releases");
+        }
     }
 
     private static void OpenExplorer(string? dir)

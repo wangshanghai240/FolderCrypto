@@ -6,7 +6,7 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>FolderCrypto.App</RootNamespace>
     <!-- 与 Package.appxmanifest / wix 保持一致；软件更新检查以程序集版本为准 -->
-    <Version>1.0.14.4</Version>
+    <Version>1.0.14.5</Version>
     <ApplicationIcon>Assets\LockIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x86;x64;ARM64</Platforms>

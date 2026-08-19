@@ -24,7 +24,7 @@ public partial class MainWindow : Window
         var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         if (v != null && v.Major > 0)
             return v.Revision >= 0 ? v.ToString(4) : v.ToString(3);
-        return "1.0.14.4";
+        return "1.0.14.5";
     }
 
     private static string DefaultInstallDir() =>
