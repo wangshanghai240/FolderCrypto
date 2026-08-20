@@ -36,6 +36,10 @@ public static class MsiInstaller
 
         ExtractMsi(msiPath);
 
+        // 安装/升级前先结束正在运行的 FolderCrypto.App，避免其 exe 文件被进程占用
+        // 导致 MSI 替换文件失败或需要重启（/qn 静默安装不会弹“文件被占用”对话框）。
+        StopRunningApp();
+
         var psi = new ProcessStartInfo
         {
             FileName = "msiexec.exe",
@@ -71,6 +75,24 @@ public static class MsiInstaller
             1602 => new InstallResult { Success = false, ExitCode = code, Message = "安装已取消（未授予管理员权限）。", LogPath = logPath },
             _ => new InstallResult { Success = false, ExitCode = code, Message = $"安装失败（错误码 {code}）。详细日志：{logPath}", LogPath = logPath },
         };
+    }
+
+    /// <summary>结束正在运行的 FolderCrypto.App 进程并等待其退出（升级/安装时需替换其 exe 文件）。</summary>
+    private static void StopRunningApp()
+    {
+        foreach (var p in Process.GetProcessesByName("FolderCrypto.App"))
+        {
+            try { p.Kill(); } catch { }
+        }
+
+        // 等待进程真正退出，确保文件句柄已释放，避免 MSI 替换失败
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (Process.GetProcessesByName("FolderCrypto.App").Length == 0)
+                return;
+            System.Threading.Thread.Sleep(200);
+        }
     }
 
     private static void ExtractMsi(string dest)

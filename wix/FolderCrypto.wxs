@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="FolderCrypto 文件夹加密" Manufacturer="FolderCrypto"
-           Version="1.0.14.10" UpgradeCode="{D2780C54-98D7-6A59-9749-86FC9194DFB1}"
+           Version="1.0.14.11" UpgradeCode="{D2780C54-98D7-6A59-9749-86FC9194DFB1}"
            Scope="perMachine" Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="已安装的版本更新，请勿降级。" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
