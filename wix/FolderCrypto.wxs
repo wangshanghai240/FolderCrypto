@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="FolderCrypto 文件夹加密" Manufacturer="FolderCrypto"
-           Version="1.0.14.5" UpgradeCode="{D2780C54-98D7-6A59-9749-86FC9194DFB1}"
+           Version="1.0.14.6" UpgradeCode="{D2780C54-98D7-6A59-9749-86FC9194DFB1}"
            Scope="perMachine" Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="已安装的版本更新，请勿降级。" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
@@ -210,6 +210,7 @@
                     WorkingDirectory="INSTALLFOLDER" Icon="appIcon" />
           <RemoveFolder Id="RemoveAppMenuFolder" Directory="AppMenuFolder" On="uninstall" />
           <RegistryValue Root="HKCU" Key="Software\FolderCrypto" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+          <RegistryValue Root="HKCU" Key="Software\FolderCrypto" Name="AppPath" Type="string" Value="[INSTALLFOLDER]FolderCrypto.App.exe" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -238,29 +239,25 @@
         <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoEncrypt" Type="string" Value="加密" KeyPath="yes" />
         <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoEncrypt" Name="MUIVerb" Type="string" Value="加密" />
         <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoEncrypt" Name="Icon" Type="string" Value="[INSTALLFOLDER]shell-support\overlay-lock.ico" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoEncrypt" Name="CommandStateHandler" Type="string" Value="{F8A2B000-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoEncrypt\command" Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt &quot;%1&quot;" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoEncrypt" Name="ExplorerCommandHandler" Type="string" Value="{F8A2B000-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
     </Component>
     <Component Id="CtxMenu_2" Guid="{5838BED2-2FBE-EAF0-5C0A-3F9F81DB15E2}" Directory="INSTALLFOLDER">
         <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoDecrypt" Type="string" Value="解密" KeyPath="yes" />
         <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoDecrypt" Name="MUIVerb" Type="string" Value="解密" />
         <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoDecrypt" Name="Icon" Type="string" Value="[INSTALLFOLDER]shell-support\unlock.ico" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoDecrypt" Name="CommandStateHandler" Type="string" Value="{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoDecrypt\command" Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; decrypt &quot;%1&quot;" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\*\shell\FolderCryptoDecrypt" Name="ExplorerCommandHandler" Type="string" Value="{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
     </Component>
     <Component Id="CtxMenu_3" Guid="{A0FE9A18-C5BB-81B9-4620-6ECA7AEA6B52}" Directory="INSTALLFOLDER">
         <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoEncrypt" Type="string" Value="加密" KeyPath="yes" />
         <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoEncrypt" Name="MUIVerb" Type="string" Value="加密" />
         <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoEncrypt" Name="Icon" Type="string" Value="[INSTALLFOLDER]shell-support\overlay-lock.ico" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoEncrypt" Name="CommandStateHandler" Type="string" Value="{F8A2B000-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoEncrypt\command" Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt &quot;%1&quot;" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoEncrypt" Name="ExplorerCommandHandler" Type="string" Value="{F8A2B000-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
     </Component>
     <Component Id="CtxMenu_4" Guid="{CF87CF30-EA5D-BBB1-8EB4-0C39C738CC04}" Directory="INSTALLFOLDER">
         <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoDecrypt" Type="string" Value="解密" KeyPath="yes" />
         <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoDecrypt" Name="MUIVerb" Type="string" Value="解密" />
         <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoDecrypt" Name="Icon" Type="string" Value="[INSTALLFOLDER]shell-support\unlock.ico" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoDecrypt" Name="CommandStateHandler" Type="string" Value="{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
-        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoDecrypt\command" Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; decrypt &quot;%1&quot;" />
+        <RegistryValue Root="HKCU" Key="Software\Classes\Directory\shell\FolderCryptoDecrypt" Name="ExplorerCommandHandler" Type="string" Value="{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}" />
     </Component>
     <Component Id="CtxMenu_5" Guid="{9FA98003-E2B4-8F6E-6D60-277D6054126B}" Directory="INSTALLFOLDER">
         <RegistryValue Root="HKCU" Key="Software\Classes\Directory\Background\shell\FolderCryptoEncrypt" Type="string" Value="加密选中" KeyPath="yes" />
@@ -269,6 +266,33 @@
         <RegistryValue Root="HKCU" Key="Software\Classes\Directory\Background\shell\FolderCryptoEncrypt\command" Type="string" Value="&quot;[INSTALLFOLDER]FolderCrypto.App.exe&quot; encrypt-here &quot;%1&quot;" />
     </Component>
 
+
+    <!-- 原生 Shell DLL 的 COM 类注册 + 锁图标覆盖层登记（干净安装即可用）。 -->
+    <Component Id="ShellNativeCom" Guid="{09A68652-0701-3B5B-F7C5-0EEC3697CBA2}" Directory="INSTALLFOLDER">
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{F8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D}">
+          <RegistryValue Type="string" Value="FolderCrypto Lock Overlay Handler" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="[INSTALLFOLDER]shell-support\FolderCrypto.ShellNative.dll" KeyPath="yes" />
+            <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+          </RegistryKey>
+        </RegistryKey>        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{F8A2B000-1234-4A5B-9C6D-7E8F9A0B1C2D}">
+          <RegistryValue Type="string" Value="FolderCrypto Encrypt Menu Command Handler" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="[INSTALLFOLDER]shell-support\FolderCrypto.ShellNative.dll" />
+            <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+          </RegistryKey>
+        </RegistryKey>        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}">
+          <RegistryValue Type="string" Value="FolderCrypto Decrypt Menu Command Handler" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="[INSTALLFOLDER]shell-support\FolderCrypto.ShellNative.dll" />
+            <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+          </RegistryKey>
+        </RegistryKey>    </Component>
+    <Component Id="OverlayReg" Guid="{2BF5597B-ADDC-DA7E-97C8-831FC9DD814C}" Directory="INSTALLFOLDER">
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\  FolderCryptoLock">
+          <RegistryValue Type="string" Value="{F8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D}" KeyPath="yes" />
+        </RegistryKey>
+    </Component>
     <Property Id="ARPPRODUCTICON" Value="appIcon" />
 
     <!-- 引入自定义安装 UI（ui.wxs，含目录选择） -->
@@ -283,6 +307,8 @@
       <ComponentRef Id="CtxMenu_3" />
       <ComponentRef Id="CtxMenu_4" />
       <ComponentRef Id="CtxMenu_5" />
+      <ComponentRef Id="ShellNativeCom" />
+      <ComponentRef Id="OverlayReg" />
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="DesktopShortcut" />
       <ComponentRef Id="ContextMenuCleanup" />

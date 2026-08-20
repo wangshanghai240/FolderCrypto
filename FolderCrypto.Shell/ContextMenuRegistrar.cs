@@ -18,7 +18,7 @@ public static class ContextMenuRegistrar
     public const string EncryptVerb = "FolderCryptoEncrypt";
     public const string DecryptVerb = "FolderCryptoDecrypt";
 
-    // 右键菜单状态处理器 CLSID（原生 DLL 实现 IExplorerCommandState）
+    // 右键菜单命令处理器 CLSID（原生 DLL 实现 IExplorerCommand）
     private const string EncryptStateHandlerClsid = "{F8A2B000-1234-4A5B-9C6D-7E8F9A0B1C2D}"; // 未加密时显示“加密”
     private const string DecryptStateHandlerClsid = "{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}"; // 已加密时显示“解密”
 
@@ -48,7 +48,7 @@ public static class ContextMenuRegistrar
         DeleteVerb(@"Directory\Background\shell", EncryptVerb);
     }
 
-    private static void RegisterVerb(string shellPath, string verb, string label, string exePath, string arg, string? stateHandlerClsid = null, string? iconPath = null)
+    private static void RegisterVerb(string shellPath, string verb, string label, string exePath, string arg, string? handlerClsid = null, string? iconPath = null)
     {
         // 写入 HKCU\Software\Classes，无需管理员权限；资源管理器会读取该位置的类注册。
         string rel = $@"Software\Classes\{shellPath}\{verb}";
@@ -63,14 +63,28 @@ public static class ContextMenuRegistrar
             if (!string.IsNullOrEmpty(iconPath))
                 key.SetValue("Icon", iconPath);
 
-            // 状态处理器：右键时按“是否已加密”动态显示/隐藏本项
-            if (!string.IsNullOrEmpty(stateHandlerClsid))
-                key.SetValue("CommandStateHandler", stateHandlerClsid);
+            if (!string.IsNullOrEmpty(handlerClsid))
+            {
+                // 动态状态：ExplorerCommandHandler（原生 IExplorerCommand，Win10/11 均可靠）。
+                // 清理旧机制遗留的 CommandStateHandler（旧版在 Win10 下会显示为灰色不可用）。
+                key.DeleteValue("CommandStateHandler", throwOnMissingValue: false);
+                key.SetValue("ExplorerCommandHandler", handlerClsid);
+            }
         }
 
-        using (var commandKey = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"{rel}\command"))
+        if (!string.IsNullOrEmpty(handlerClsid))
         {
-            commandKey.SetValue(null, $@"""{exePath}"" {arg} ""%1""");
+            // 记录主程序路径，供原生 IExplorerCommand 的 Invoke 启动应用。
+            using (var root = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\FolderCrypto"))
+                root.SetValue("AppPath", exePath);
+        }
+        else
+        {
+            // 静态动词（如文件夹空白处）：用 \command 直接启动。
+            using (var commandKey = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"{rel}\command"))
+            {
+                commandKey.SetValue(null, $@"""{exePath}"" {arg} ""%1""");
+            }
         }
     }
 

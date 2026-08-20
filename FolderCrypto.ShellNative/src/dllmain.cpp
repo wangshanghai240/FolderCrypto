@@ -166,10 +166,12 @@ static bool IsPathEncrypted(LPCWSTR pwszPath)
 }
 
 // ---------------------------------------------------------------------------
-// 右键菜单状态处理器（IExplorerCommandState）：
-//   用于在右键时按“是否已加密”动态显示/隐藏“加密/解密”。
+// 右键菜单命令（IExplorerCommand）：
+//   Win10/11 均可靠地按选中项动态显示/隐藏“加密/解密”。
 //   - CEncryptStateHandler：未加密时显示“加密”
 //   - CDecryptStateHandler：已加密时显示“解密”
+//   动词注册用 ExplorerCommandHandler = {CLSID}（比 CommandStateHandler 更可靠，
+//   旧 CommandStateHandler 在 Win10 下会显示为灰色不可用且加密/解密同时出现）。
 // ---------------------------------------------------------------------------
 // 共享：计算右键命令状态。showWhenEncrypted 为 true 则“已加密时显示”，否则“未加密时显示”。
 static void ComputeCmdState(IShellItemArray* psiItemArray, bool showWhenEncrypted, EXPCMDSTATE* pCmdState)
@@ -196,46 +198,169 @@ static void ComputeCmdState(IShellItemArray* psiItemArray, bool showWhenEncrypte
     *pCmdState = show ? ECS_ENABLED : ECS_HIDDEN;
 }
 
+// 共享：取选中项数组中的第一个文件系统路径
+static HRESULT GetFirstSelectedPath(IShellItemArray* psiItemArray, std::wstring& outPath)
+{
+    outPath.clear();
+    if (psiItemArray == nullptr) return E_POINTER;
+
+    CComPtr<IShellItem> psiItem;
+    if (FAILED(psiItemArray->GetItemAt(0, &psiItem)) || psiItem == nullptr)
+        return E_FAIL;
+
+    PWSTR pszPath = nullptr;
+    if (FAILED(psiItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath)) || pszPath == nullptr)
+        return E_FAIL;
+    outPath = pszPath;
+    CoTaskMemFree(pszPath);
+    return S_OK;
+}
+
+// 分配 CoTaskMem 字符串（IExplorerCommand 的字符串返回约定）
+static HRESULT SetCmdString(LPWSTR* ppsz, const wchar_t* value)
+{
+    if (ppsz == nullptr) return E_POINTER;
+    size_t len = wcslen(value);
+    LPWSTR buf = (LPWSTR)CoTaskMemAlloc((len + 1) * sizeof(wchar_t));
+    if (buf == nullptr) return E_OUTOFMEMORY;
+    wcscpy_s(buf, len + 1, value);
+    *ppsz = buf;
+    return S_OK;
+}
+
+// 读取本 DLL 同目录下的图标路径
+static HRESULT GetDllDirIconPath(const wchar_t* iconName, LPWSTR* ppszIcon)
+{
+    if (ppszIcon == nullptr) return E_POINTER;
+    wchar_t szDll[MAX_PATH] = { 0 };
+    HMODULE hMod = _AtlBaseModule.GetModuleInstance();
+    if (hMod == nullptr || GetModuleFileNameW(hMod, szDll, MAX_PATH) == 0)
+    {
+        *ppszIcon = nullptr;
+        return S_OK;
+    }
+    wchar_t* pSlash = wcsrchr(szDll, L'\\');
+    if (pSlash) *pSlash = L'\0';
+    wchar_t szIcon[MAX_PATH] = { 0 };
+    swprintf_s(szIcon, MAX_PATH, L"%s\\%s", szDll, iconName);
+    return SetCmdString(ppszIcon, szIcon);
+}
+
+// 读取安装时写入的主程序路径（HKCU\Software\FolderCrypto\AppPath）
+static bool ReadAppExePath(std::wstring& outExe)
+{
+    outExe.clear();
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\FolderCrypto", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+        return false;
+    wchar_t buf[MAX_PATH] = { 0 };
+    DWORD size = sizeof(buf);
+    LONG lr = RegQueryValueExW(hKey, L"AppPath", nullptr, nullptr, (BYTE*)buf, &size);
+    RegCloseKey(hKey);
+    if (lr != ERROR_SUCCESS) return false;
+    outExe = buf;
+    return !outExe.empty();
+}
+
+// 用 ShellExecute 启动主程序处理选中项
+static void LaunchApp(const std::wstring& appExe, const wchar_t* action, const std::wstring& path)
+{
+    std::wstring args = std::wstring(action) + L" \"" + path + L"\"";
+    ShellExecuteW(nullptr, L"open", appExe.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
+}
+
 class ATL_NO_VTABLE CEncryptStateHandler :
     public CComObjectRootEx<CComSingleThreadModel>,
     public CComCoClass<CEncryptStateHandler, &CLSID_CEncryptStateHandler>,
-    public IExplorerCommandState
+    public IExplorerCommand
 {
 public:
     DECLARE_NO_REGISTRY()
     DECLARE_NOT_AGGREGATABLE(CEncryptStateHandler)
     BEGIN_COM_MAP(CEncryptStateHandler)
-        COM_INTERFACE_ENTRY(IExplorerCommandState)
+        COM_INTERFACE_ENTRY(IExplorerCommand)
     END_COM_MAP()
 
-    // IExplorerCommandState：未加密时显示“加密”
-    STDMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pCmdState)
+    // IExplorerCommand：未加密时显示“加密”
+    STDMETHODIMP GetTitle(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszTitle) override
+    { return SetCmdString(ppszTitle, L"加密"); }
+
+    STDMETHODIMP GetIcon(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszIcon) override
+    { return GetDllDirIconPath(L"overlay-lock.ico", ppszIcon); }
+
+    STDMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) override
+    { if (ppszInfoTip) *ppszInfoTip = nullptr; return S_OK; }
+
+    STDMETHODIMP GetCanonicalName(GUID* pguidCommandName) override
+    { if (pguidCommandName) *pguidCommandName = CLSID_CEncryptStateHandler; return S_OK; }
+
+    STDMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pCmdState) override
     {
         if (pCmdState == nullptr) return E_POINTER;
         ComputeCmdState(psiItemArray, /*showWhenEncrypted=*/false, pCmdState);
         return S_OK;
     }
+
+    STDMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) override
+    {
+        std::wstring path, exe;
+        if (FAILED(GetFirstSelectedPath(psiItemArray, path)) || path.empty()) return S_OK;
+        if (ReadAppExePath(exe) && !exe.empty()) LaunchApp(exe, L"encrypt", path);
+        return S_OK;
+    }
+
+    STDMETHODIMP EnumSubCommands(IEnumExplorerCommand** ppEnum) override
+    { if (ppEnum) *ppEnum = nullptr; return S_OK; }
+
+    STDMETHODIMP GetFlags(EXPCMDFLAGS* pFlags) override
+    { if (pFlags) *pFlags = ECF_DEFAULT; return S_OK; }
 };
 
 class ATL_NO_VTABLE CDecryptStateHandler :
     public CComObjectRootEx<CComSingleThreadModel>,
     public CComCoClass<CDecryptStateHandler, &CLSID_CDecryptStateHandler>,
-    public IExplorerCommandState
+    public IExplorerCommand
 {
 public:
     DECLARE_NO_REGISTRY()
     DECLARE_NOT_AGGREGATABLE(CDecryptStateHandler)
     BEGIN_COM_MAP(CDecryptStateHandler)
-        COM_INTERFACE_ENTRY(IExplorerCommandState)
+        COM_INTERFACE_ENTRY(IExplorerCommand)
     END_COM_MAP()
 
-    // IExplorerCommandState：已加密时显示“解密”
-    STDMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pCmdState)
+    // IExplorerCommand：已加密时显示“解密”
+    STDMETHODIMP GetTitle(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszTitle) override
+    { return SetCmdString(ppszTitle, L"解密"); }
+
+    STDMETHODIMP GetIcon(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszIcon) override
+    { return GetDllDirIconPath(L"unlock.ico", ppszIcon); }
+
+    STDMETHODIMP GetToolTip(IShellItemArray* /*psiItemArray*/, LPWSTR* ppszInfoTip) override
+    { if (ppszInfoTip) *ppszInfoTip = nullptr; return S_OK; }
+
+    STDMETHODIMP GetCanonicalName(GUID* pguidCommandName) override
+    { if (pguidCommandName) *pguidCommandName = CLSID_CDecryptStateHandler; return S_OK; }
+
+    STDMETHODIMP GetState(IShellItemArray* psiItemArray, BOOL /*fOkToBeSlow*/, EXPCMDSTATE* pCmdState) override
     {
         if (pCmdState == nullptr) return E_POINTER;
         ComputeCmdState(psiItemArray, /*showWhenEncrypted=*/true, pCmdState);
         return S_OK;
     }
+
+    STDMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) override
+    {
+        std::wstring path, exe;
+        if (FAILED(GetFirstSelectedPath(psiItemArray, path)) || path.empty()) return S_OK;
+        if (ReadAppExePath(exe) && !exe.empty()) LaunchApp(exe, L"decrypt", path);
+        return S_OK;
+    }
+
+    STDMETHODIMP EnumSubCommands(IEnumExplorerCommand** ppEnum) override
+    { if (ppEnum) *ppEnum = nullptr; return S_OK; }
+
+    STDMETHODIMP GetFlags(EXPCMDFLAGS* pFlags) override
+    { if (pFlags) *pFlags = ECF_DEFAULT; return S_OK; }
 };
 
 OBJECT_ENTRY_AUTO(CLSID_CEncryptStateHandler, CEncryptStateHandler)

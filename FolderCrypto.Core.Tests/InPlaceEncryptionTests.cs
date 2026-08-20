@@ -119,6 +119,27 @@ public class InPlaceEncryptionTests : IDisposable
     }
 
     [Fact]
+    public void Folder_Encrypted_PreventsAddingFilesOrSubdirs()
+    {
+        string dir = Path.Combine(_dir, "locked_no_drop");
+        Directory.CreateDirectory(dir);
+
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+        Assert.True(InPlaceEncryptionService.IsFolderEncrypted(dir));
+
+        // 不能再往加密文件夹里创建文件（拖入/粘贴未加密文件的底层操作）
+        Assert.ThrowsAny<Exception>(() => File.WriteAllText(Path.Combine(dir, "dropped.txt"), "x"));
+        // 不能再往加密文件夹里创建子文件夹（拖入文件夹）
+        Assert.ThrowsAny<Exception>(() => Directory.CreateDirectory(Path.Combine(dir, "dropped_sub")));
+
+        // 解锁后恢复可写入，且正常解密
+        InPlaceEncryptionService.DecryptFolder(dir, ValidPassword);
+        Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
+        File.WriteAllText(Path.Combine(dir, "after_decrypt.txt"), "ok");
+        Assert.True(File.Exists(Path.Combine(dir, "after_decrypt.txt")));
+    }
+
+    [Fact]
     public void IsEncrypted_DetectsFileAndFolder()
     {
         string file = Path.Combine(_dir, "f.txt");

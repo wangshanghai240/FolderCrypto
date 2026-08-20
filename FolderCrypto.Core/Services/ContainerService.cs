@@ -546,9 +546,9 @@ public sealed class ContainerService
         }
 
         /// <summary>
-        /// 用权限封锁文件夹的“浏览”能力（拒绝当前用户进入/列出），
-        /// 使双击无法进入，达到“真正锁定文件夹”的效果。
-        /// 仅封锁浏览权限，保留所有者修改权限，因此可由所有者正常解锁。
+        /// 用权限封锁文件夹：拒绝当前用户浏览/进入（双击 → 访问被拒绝），
+        /// 同时拒绝创建文件与子文件夹，防止把未加密的文件/文件夹拖入已加密文件夹。
+        /// 仅封锁这些权限，解锁时移除对应 Deny 即可由所有者正常恢复。
         /// </summary>
         public static void LockFolderAcl(string folderPath)
         {
@@ -558,9 +558,25 @@ public sealed class ContainerService
 
             var di = new DirectoryInfo(folderPath);
             var sec = di.GetAccessControl(AccessControlSections.Access);
+
+            // 先移除当前用户既有的拒绝规则，避免重复累积
+            foreach (var rule in sec.GetAccessRules(true, true, typeof(SecurityIdentifier)))
+            {
+                if (rule is FileSystemAccessRule fr &&
+                    fr.IdentityReference.Equals(id) &&
+                    fr.AccessControlType == AccessControlType.Deny)
+                {
+                    sec.RemoveAccessRule(fr);
+                }
+            }
+
             var deny = new FileSystemAccessRule(
                 id,
-                FileSystemRights.ListDirectory | FileSystemRights.Traverse,
+                // 禁止浏览/遍历（无法进入、列出内容），
+                // 禁止创建文件(CreateFiles=WriteData)与子文件夹(CreateDirectories=AppendData)，
+                // 从而无法把其他文件/文件夹拖入或粘贴进已加密文件夹。
+                FileSystemRights.ListDirectory | FileSystemRights.Traverse |
+                FileSystemRights.CreateFiles | FileSystemRights.CreateDirectories,
                 InheritanceFlags.None,
                 PropagationFlags.None,
                 AccessControlType.Deny);

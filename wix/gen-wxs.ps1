@@ -128,8 +128,15 @@ foreach ($v in $verbs) {
     $values = "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Type=`"string`" Value=`"$label`" KeyPath=`"yes`" />`n"
     $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Name=`"MUIVerb`" Type=`"string`" Value=`"$label`" />`n"
     if ($icon) { $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Name=`"Icon`" Type=`"string`" Value=`"$icon`" />`n" }
-    if ($clsid) { $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Name=`"CommandStateHandler`" Type=`"string`" Value=`"$clsid`" />`n" }
-    $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key\command`" Type=`"string`" Value=`"$cmd`" />`n"
+    if ($clsid) {
+        # 动态状态动词：用 IExplorerCommand（ExplorerCommandHandler），Win10/11 均可靠；
+        # 不再用 CommandStateHandler（旧机制在 Win10 下会显示为灰色不可用且加密/解密同时出现）。
+        $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Name=`"ExplorerCommandHandler`" Type=`"string`" Value=`"$clsid`" />`n"
+    }
+    else {
+        # 静态动词（如文件夹空白处）：用 \command 直接启动。
+        $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key\command`" Type=`"string`" Value=`"$cmd`" />`n"
+    }
 
     $ctxMenuXml += @"
     <Component Id="$cid" Guid="$(New-MsiGuid "ctx-$rootShell-$verb")" Directory="INSTALLFOLDER">
@@ -139,6 +146,42 @@ $values    </Component>
     $ctxRefIds += "      <ComponentRef Id=`"$cid`" />"
 }
 $ctxRefs = $ctxRefIds -join "`n"
+
+# ===========================================================================
+# 原生 Shell DLL 的 COM 类注册 + 锁图标覆盖层登记（MSI 直接写入，干净安装即可用）。
+# 与运行时 FolderCrypto.Shell install（DllRegisterServer + OverlayRegistrar）写出的键一致。
+# ===========================================================================
+$nativeDllPath = '[INSTALLFOLDER]shell-support\FolderCrypto.ShellNative.dll'
+$overlayClsid  = '{F8A2C000-1234-4A5B-9C6D-7E8F9A0B1C2D}'
+$clsidDefs = @(
+    @{ Clsid = $overlayClsid;      Label = 'FolderCrypto Lock Overlay Handler' },
+    @{ Clsid = $encryptStateClsid; Label = 'FolderCrypto Encrypt Menu Command Handler' },
+    @{ Clsid = $decryptStateClsid; Label = 'FolderCrypto Decrypt Menu Command Handler' }
+)
+$shellRegXml = "    <Component Id=`"ShellNativeCom`" Guid=`"$(New-MsiGuid 'shellnative-com')`" Directory=`"INSTALLFOLDER`">`n"
+$firstClsid = $true
+foreach ($c in $clsidDefs) {
+    $kp = if ($firstClsid) { ' KeyPath="yes"' } else { '' }
+    $firstClsid = $false
+    $shellRegXml += @"
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\$($c.Clsid)">
+          <RegistryValue Type="string" Value="$($c.Label)" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="$nativeDllPath"$kp />
+            <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+          </RegistryKey>
+        </RegistryKey>
+"@
+}
+$shellRegXml += "    </Component>`n"
+$shellRegXml += @"
+    <Component Id="OverlayReg" Guid="$(New-MsiGuid 'overlay-reg')" Directory="INSTALLFOLDER">
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers\  FolderCryptoLock">
+          <RegistryValue Type="string" Value="$overlayClsid" KeyPath="yes" />
+        </RegistryKey>
+    </Component>
+"@
+$ctxRefs += "`n      <ComponentRef Id=`"ShellNativeCom`" />`n      <ComponentRef Id=`"OverlayReg`" />"
 
 # 保留卸载时用于清理传统/旧版遗留的 RemoveRegistryKey（FolderCrypto.Shell 运行过但未跟踪的键）
 $contextMenuKeys = @(
@@ -191,6 +234,7 @@ $subDirs
                     WorkingDirectory="INSTALLFOLDER" Icon="$iconId" />
           <RemoveFolder Id="RemoveAppMenuFolder" Directory="AppMenuFolder" On="uninstall" />
           <RegistryValue Root="HKCU" Key="Software\FolderCrypto" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+          <RegistryValue Root="HKCU" Key="Software\FolderCrypto" Name="AppPath" Type="string" Value="[INSTALLFOLDER]FolderCrypto.App.exe" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -211,6 +255,9 @@ $cleanupRemoves    </Component>
 
     <!-- 安装时写入的右键菜单注册表项（对应 ContextMenuRegistrar，安装即注册、卸载即删除）。 -->
 $ctxMenuXml
+
+    <!-- 原生 Shell DLL 的 COM 类注册 + 锁图标覆盖层登记（干净安装即可用）。 -->
+$shellRegXml
     <Property Id="ARPPRODUCTICON" Value="$iconId" />
 
     <!-- 引入自定义安装 UI（ui.wxs，含目录选择） -->

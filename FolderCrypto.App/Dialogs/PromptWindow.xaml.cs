@@ -170,7 +170,8 @@ public sealed partial class PromptWindow : Window
                 PasswordBox.IsEnabled = true;
                 RecoveryBox.IsEnabled = true;
                 ModeSwitch.IsEnabled = true;
-                HintText.Visibility = Visibility.Collapsed;
+                // 只清空提示文字、保留占位（MinHeight=18），避免收起提示区导致下方按钮上移
+                HintText.Text = "";
                 UpdateOkEnabled();
             }
             else
