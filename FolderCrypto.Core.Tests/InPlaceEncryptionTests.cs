@@ -280,6 +280,52 @@ public class InPlaceEncryptionTests : IDisposable
     }
 
     [Fact]
+    public void Folder_Encrypt_ReportsProgress()
+    {
+        string dir = Path.Combine(_dir, "prog_enc");
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Combine(dir, "a.bin"), new byte[5 * 1024 * 1024]);
+        File.WriteAllBytes(Path.Combine(dir, "b.bin"), new byte[5 * 1024 * 1024]);
+
+        var progress = new CollectProgress();
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword, progress);
+
+        Assert.NotEmpty(progress.Reports);
+        Assert.Equal(100, progress.Reports[^1]);
+        // 加密第一个文件期间就应有中间进度（不能一直停在 0%）
+        Assert.Contains(progress.Reports, p => p is > 0 and < 100);
+        // 进度单调不减
+        for (int i = 1; i < progress.Reports.Count; i++)
+            Assert.True(progress.Reports[i] >= progress.Reports[i - 1]);
+    }
+
+    [Fact]
+    public void Folder_Decrypt_ReportsProgress()
+    {
+        string dir = Path.Combine(_dir, "prog_dec");
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Combine(dir, "a.bin"), new byte[5 * 1024 * 1024]);
+        File.WriteAllBytes(Path.Combine(dir, "b.bin"), new byte[5 * 1024 * 1024]);
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+
+        var progress = new CollectProgress();
+        InPlaceEncryptionService.DecryptFolder(dir, ValidPassword, progress: progress);
+
+        Assert.NotEmpty(progress.Reports);
+        Assert.Equal(100, progress.Reports[^1]);
+        Assert.Contains(progress.Reports, p => p is > 0 and < 100);
+        for (int i = 1; i < progress.Reports.Count; i++)
+            Assert.True(progress.Reports[i] >= progress.Reports[i - 1]);
+    }
+
+    /// <summary>同步收集进度的 IProgress，便于在单测中断言进度上报行为。</summary>
+    private sealed class CollectProgress : IProgress<int>
+    {
+        public List<int> Reports { get; } = new();
+        public void Report(int value) => Reports.Add(value);
+    }
+
+    [Fact]
     public void IsEncrypted_DetectsFileAndFolder()
     {
         string file = Path.Combine(_dir, "f.txt");

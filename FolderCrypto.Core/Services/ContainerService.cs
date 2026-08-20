@@ -679,7 +679,7 @@ public sealed class ContainerService
             }
         }
 
-        /// <summary>递归加密文件夹内所有文件（跳过已加密与标记文件）。</summary>
+        /// <summary>递归加密文件夹内所有文件（跳过已加密与标记文件），并把每个文件的内部进度映射到文件夹整体进度。</summary>
         private static void EncryptFilesRecursive(string folderPath, string password, string recoveryCode, IProgress<int>? progress)
         {
             string[] files;
@@ -694,19 +694,25 @@ public sealed class ContainerService
 
                 try
                 {
-                    EncryptFileWithRecovery(f, password, recoveryCode);
+                    if (progress != null && files.Length > 0)
+                    {
+                        // 把当前文件的内部进度(0-100)映射到文件夹整体进度，避免第一个大文件期间一直 0%
+                        EncryptFileWithRecovery(f, password, recoveryCode,
+                            new FolderProgress(progress, i, files.Length));
+                    }
+                    else
+                    {
+                        EncryptFileWithRecovery(f, password, recoveryCode);
+                    }
                 }
                 catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && ex is not FileNotFoundException)
                 {
                     throw new IOException($"加密失败：文件正被其他程序占用或无法访问：{f}\n请关闭正在使用的文件后重试。", ex);
                 }
-
-                if (progress != null && files.Length > 0)
-                    progress.Report((int)((double)(i + 1) / files.Length * 100));
             }
         }
 
-        /// <summary>递归解密文件夹内所有已加密文件（跳过标记文件与未加密文件）。</summary>
+        /// <summary>递归解密文件夹内所有已加密文件（跳过标记文件与未加密文件），并把每个文件的内部进度映射到文件夹整体进度。</summary>
         private static void DecryptFilesRecursive(string folderPath, string? password, string? recoveryCode, IProgress<int>? progress)
         {
             string[] files;
@@ -721,16 +727,38 @@ public sealed class ContainerService
 
                 try
                 {
-                    DecryptFile(f, password, recoveryCode);
+                    if (progress != null && files.Length > 0)
+                    {
+                        DecryptFile(f, password, recoveryCode, new FolderProgress(progress, i, files.Length));
+                    }
+                    else
+                    {
+                        DecryptFile(f, password, recoveryCode);
+                    }
                 }
                 catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && ex is not FileNotFoundException)
                 {
                     throw new IOException($"解密失败：文件正被其他程序占用或无法访问：{f}\n请关闭正在使用的文件后重试。", ex);
                 }
-
-                if (progress != null && files.Length > 0)
-                    progress.Report((int)((double)(i + 1) / files.Length * 100));
             }
+        }
+
+        /// <summary>把某个文件的内部进度(0-100)映射为文件夹整体进度，保证进度条随文件内部进度实时前进。</summary>
+        private sealed class FolderProgress : IProgress<int>
+        {
+            private readonly IProgress<int> _inner;
+            private readonly int _index;   // 当前文件序号（0-based）
+            private readonly int _total;   // 文件总数
+
+            public FolderProgress(IProgress<int> inner, int index, int total)
+            {
+                _inner = inner;
+                _index = index;
+                _total = total;
+            }
+
+            public void Report(int value)
+                => _inner.Report((int)((_index + value / 100.0) / _total * 100));
         }
 
         /// <summary>
