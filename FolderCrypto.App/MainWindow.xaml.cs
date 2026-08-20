@@ -417,6 +417,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var downloadBar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Width = 320, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var downloadText = new TextBlock
+        {
+            Text = $"正在下载 v{result.LatestVersion} 安装包到「下载」目录… 0%",
+            TextWrapping = TextWrapping.Wrap
+        };
         var progress = new ContentDialog
         {
             Title = "正在下载更新",
@@ -425,12 +431,8 @@ public sealed partial class MainWindow : Window
                 Spacing = 12,
                 Children =
                 {
-                    new ProgressRing { IsActive = true, Width = 48, Height = 48 },
-                    new TextBlock
-                    {
-                        Text = $"正在下载 v{result.LatestVersion} 安装包到「下载」目录…",
-                        TextWrapping = TextWrapping.Wrap
-                    }
+                    downloadBar,
+                    downloadText
                 }
             },
             CloseButtonText = "取消",
@@ -450,7 +452,12 @@ public sealed partial class MainWindow : Window
         progress.Closed += (s, ev) => dialogClosed.TrySetResult(true);
         _ = progress.ShowAsync();
 
-        var downloadTask = UpdateService.DownloadAsync(url, fileName);
+        var downloadProgress = new Progress<int>(p =>
+        {
+            downloadBar.Value = Math.Clamp(p, 0, 100);
+            downloadText.Text = $"正在下载 v{result.LatestVersion} 安装包到「下载」目录… {Math.Clamp(p, 0, 100)}%";
+        });
+        var downloadTask = UpdateService.DownloadAsync(url, fileName, downloadProgress);
         var finished = await Task.WhenAny(dialogClosed.Task, downloadTask);
         if (finished == dialogClosed.Task)
         {

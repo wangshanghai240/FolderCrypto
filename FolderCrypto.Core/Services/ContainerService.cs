@@ -359,20 +359,28 @@ public sealed class ContainerService
                 throw new InvalidOperationException("该文件已加密。");
 
             string recoveryCode = GenerateRecoveryCode();
+            EncryptFileWithRecovery(filePath, password, recoveryCode, progress);
+            return recoveryCode;
+        }
+
+        /// <summary>用指定恢复码原地加密文件（文件夹递归加密时所有文件共用同一恢复码）。</summary>
+        private static void EncryptFileWithRecovery(string filePath, string password, string recoveryCode, IProgress<int>? fileProgress = null)
+        {
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException("文件不存在。", filePath);
 
             // 读取原文件（分块，报告进度 0-50）
-            progress?.Report(0);
-            byte[] content = ReadFileWithProgress(filePath, progress, 0, 50);
+            fileProgress?.Report(0);
+            byte[] content = ReadFileWithProgress(filePath, fileProgress, 0, 50);
 
             // 加密（含头/密钥包裹）。整段加密后报告 85。
             byte[] payload = BuildPayload(content, password, recoveryCode);
-            progress?.Report(85);
+            fileProgress?.Report(85);
 
             // 写回（报告 85-100）
-            WriteFileWithProgress(filePath, payload, progress, 85, 100);
+            WriteFileWithProgress(filePath, payload, fileProgress, 85, 100);
 
             CryptoUtil.Zero(content);
-            return recoveryCode;
         }
 
         /// <summary>对已加密文件进行原地解密。输入密码或恢复码任一正确即可。</summary>
@@ -468,9 +476,12 @@ public sealed class ContainerService
 
         #region 文件夹
 
-        /// <summary>加密（锁定）文件夹：放置隐藏标记 + 用权限禁止浏览该文件夹。</summary>
-        /// <remarks>加密后双击该文件夹会被拒绝访问（访问被拒绝），从而无法进入。</remarks>
-        public static string EncryptFolder(string folderPath, string password)
+        /// <summary>
+        /// 加密（锁定）文件夹：递归加密文件夹内所有文件 + 放置隐藏标记 + 权限封锁。
+        /// 加密后内容真正加密（正在被其他程序占用的文件会提示关闭后重试），
+        /// 并禁止浏览/进入、禁止拖入未加密内容。
+        /// </summary>
+        public static string EncryptFolder(string folderPath, string password, IProgress<int>? progress = null)
         {
             if (!Directory.Exists(folderPath))
                 throw new DirectoryNotFoundException("文件夹不存在。");
@@ -478,13 +489,18 @@ public sealed class ContainerService
                 throw new InvalidOperationException("该文件夹已加密。");
 
             string recoveryCode = GenerateRecoveryCode();
-            byte[] marker = BuildPayload(Array.Empty<byte>(), password, recoveryCode);
+            string normalizedRec = NormalizeRecoveryCode(recoveryCode);
 
+            // 递归加密文件夹内所有文件（真正的内容加密）
+            EncryptFilesRecursive(folderPath, password, normalizedRec, progress);
+
+            // 放置隐藏标记（含密码/恢复码验证）
             string markerPath = Path.Combine(folderPath, FolderLockFileName);
+            byte[] marker = BuildPayload(Array.Empty<byte>(), password, recoveryCode);
             File.WriteAllBytes(markerPath, marker);
             File.SetAttributes(markerPath, FileAttributes.Hidden | FileAttributes.System);
 
-            // 用权限禁止浏览该文件夹（双击 → 访问被拒绝）。
+            // 用权限封锁：禁止浏览/进入 + 禁止创建文件/子文件夹（阻止拖入）
             LockFolderAcl(folderPath);
             return recoveryCode;
         }
@@ -519,8 +535,11 @@ public sealed class ContainerService
             }
         }
 
-        /// <summary>解密（解锁）文件夹：移除浏览权限封锁并删除标记。密码或恢复码任一正确即可。</summary>
-        public static void DecryptFolder(string folderPath, string? password = null, string? recoveryCode = null)
+        /// <summary>
+        /// 解密（解锁）文件夹：递归解密文件夹内所有文件 + 删除标记 + 解除权限封锁。
+        /// 密码或恢复码任一正确即可。
+        /// </summary>
+        public static void DecryptFolder(string folderPath, string? password = null, string? recoveryCode = null, IProgress<int>? progress = null)
         {
             if (!Directory.Exists(folderPath))
                 throw new DirectoryNotFoundException("文件夹不存在。");
@@ -534,15 +553,72 @@ public sealed class ContainerService
             try
             {
                 DecryptPayload(File.ReadAllBytes(markerPath), encrypted: true, password, recoveryCode);
+
+                // 递归解密所有已加密文件（旧式仅 ACL 锁定的文件夹内没有加密文件，自动跳过）
+                DecryptFilesRecursive(folderPath, password, recoveryCode, progress);
+
+                File.Delete(markerPath);
             }
             catch
             {
-                // 密码/恢复码错误：重新锁回去，避免错误输入导致解锁。
+                // 密码/恢复码错误或解密失败：重新锁回去，避免错误输入导致解锁。
                 if (wasLocked) LockFolderAcl(folderPath);
                 throw;
             }
+        }
 
-            File.Delete(markerPath);
+        /// <summary>递归加密文件夹内所有文件（跳过已加密与标记文件）。</summary>
+        private static void EncryptFilesRecursive(string folderPath, string password, string recoveryCode, IProgress<int>? progress)
+        {
+            string[] files;
+            try { files = Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories); }
+            catch { files = Array.Empty<string>(); }
+
+            for (int i = 0; i < files.Length; i++)
+            {
+                string f = files[i];
+                if (Path.GetFileName(f) == FolderLockFileName) continue;
+                if (IsFileEncrypted(f)) continue;
+
+                try
+                {
+                    EncryptFileWithRecovery(f, password, recoveryCode);
+                }
+                catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && ex is not FileNotFoundException)
+                {
+                    throw new IOException($"加密失败：文件正被其他程序占用或无法访问：{f}\n请关闭正在使用的文件后重试。", ex);
+                }
+
+                if (progress != null && files.Length > 0)
+                    progress.Report((int)((double)(i + 1) / files.Length * 100));
+            }
+        }
+
+        /// <summary>递归解密文件夹内所有已加密文件（跳过标记文件与未加密文件）。</summary>
+        private static void DecryptFilesRecursive(string folderPath, string? password, string? recoveryCode, IProgress<int>? progress)
+        {
+            string[] files;
+            try { files = Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories); }
+            catch { files = Array.Empty<string>(); }
+
+            for (int i = 0; i < files.Length; i++)
+            {
+                string f = files[i];
+                if (Path.GetFileName(f) == FolderLockFileName) continue;
+                if (!IsFileEncrypted(f)) continue;
+
+                try
+                {
+                    DecryptFile(f, password, recoveryCode);
+                }
+                catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && ex is not FileNotFoundException)
+                {
+                    throw new IOException($"解密失败：文件正被其他程序占用或无法访问：{f}\n请关闭正在使用的文件后重试。", ex);
+                }
+
+                if (progress != null && files.Length > 0)
+                    progress.Report((int)((double)(i + 1) / files.Length * 100));
+            }
         }
 
         /// <summary>

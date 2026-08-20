@@ -126,9 +126,10 @@ public sealed partial class PromptWindow : Window
 
         if (isFolder)
         {
-            // 文件夹：近即时，直接执行（展示进度条短暂停留以体现“加密中”）
-            ShowProgress("正在加密…");
-            await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFolder(_targetPath, pwd));
+            // 文件夹：递归加密所有文件，展示实时进度
+            ShowProgress("正在加密… 0%");
+            var progress = new Progress<int>(p => UpdateProgress(p, $"正在加密… {p}%"));
+            await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFolder(_targetPath, pwd, progress));
         }
         else
         {
@@ -185,11 +186,12 @@ public sealed partial class PromptWindow : Window
         bool isFolder = System.IO.Directory.Exists(_targetPath);
         if (isFolder)
         {
-            ShowProgress("正在解密…");
+            ShowProgress("正在解密… 0%");
+            var progress = new Progress<int>(p => UpdateProgress(p, $"正在解密… {p}%"));
             await Task.Run(() =>
             {
-                if (isRecovery) InPlaceEncryptionService.DecryptFolder(_targetPath, null, secret);
-                else InPlaceEncryptionService.DecryptFolder(_targetPath, secret, null);
+                if (isRecovery) InPlaceEncryptionService.DecryptFolder(_targetPath, null, secret, progress);
+                else InPlaceEncryptionService.DecryptFolder(_targetPath, secret, null, progress);
             });
         }
         else

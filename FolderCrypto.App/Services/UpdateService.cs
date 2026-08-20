@@ -124,7 +124,7 @@ public static class UpdateService
     /// 把更新包以「流式」方式下载到「下载」目录。
     /// 返回 (文件完整路径, 错误信息)；成功时 Error 为 null。
     /// </summary>
-    public static async Task<(string? Path, string? Error)> DownloadAsync(string url, string fileName)
+    public static async Task<(string? Path, string? Error)> DownloadAsync(string url, string fileName, IProgress<int>? progress = null)
     {
         string downloads = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -147,9 +147,28 @@ public static class UpdateService
                 if (!resp.IsSuccessStatusCode)
                     return (null, $"HTTP {(int)resp.StatusCode}");
 
+                long total = resp.Content.Headers.ContentLength ?? -1;
+
                 await using var src = await resp.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
                 await using var dst = File.Create(dest);
-                await src.CopyToAsync(dst, cts.Token).ConfigureAwait(false);
+
+                // 分块读写 + 按已下载字节数报告进度（Content-Length 未知时按已下载 MB 估算）
+                var buffer = new byte[81920];
+                long received = 0;
+                int read;
+                while ((read = await src.ReadAsync(buffer, cts.Token).ConfigureAwait(false)) > 0)
+                {
+                    await dst.WriteAsync(buffer, 0, read, cts.Token).ConfigureAwait(false);
+                    received += read;
+                    if (progress != null)
+                    {
+                        int percent = total > 0
+                            ? (int)Math.Clamp(received * 100 / total, 0, 100)
+                            : Math.Min((int)(received / (1024.0 * 1024.0)), 50); // 未知总长：按已下载 MB 估算
+                        progress.Report(percent);
+                    }
+                }
+                progress?.Report(100);
                 return (dest, null);
             }
             catch (OperationCanceledException)

@@ -77,7 +77,7 @@ public class InPlaceEncryptionTests : IDisposable
     {
         string dir = Path.Combine(_dir, "myfolder");
         Directory.CreateDirectory(dir);
-        // 内部内容不应被修改（仅被封锁浏览）
+        // 新行为：加密时递归加密内部文件（内容为密文），解密后还原
         string inner = Path.Combine(dir, "inner.txt");
         File.WriteAllText(inner, "keep me");
 
@@ -137,6 +137,83 @@ public class InPlaceEncryptionTests : IDisposable
         Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
         File.WriteAllText(Path.Combine(dir, "after_decrypt.txt"), "ok");
         Assert.True(File.Exists(Path.Combine(dir, "after_decrypt.txt")));
+    }
+
+    [Fact]
+    public void Folder_EncryptRoundTrip_EncryptsAllFilesRecursively()
+    {
+        string dir = Path.Combine(_dir, "deepfolder");
+        Directory.CreateDirectory(Path.Combine(dir, "sub1", "sub2"));
+        string f1 = Path.Combine(dir, "root.txt");
+        string f2 = Path.Combine(dir, "sub1", "mid.txt");
+        string f3 = Path.Combine(dir, "sub1", "sub2", "leaf.txt");
+        File.WriteAllText(f1, "ROOT-DATA-机密");
+        File.WriteAllText(f2, "MID-DATA");
+        File.WriteAllText(f3, "LEAF-DATA");
+
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+        Assert.True(InPlaceEncryptionService.IsFolderEncrypted(dir));
+
+        // 解锁 ACL 以便读取内部文件；内容应已被真正加密
+        InPlaceEncryptionService.UnlockFolderAcl(dir);
+        Assert.True(InPlaceEncryptionService.IsFileEncrypted(f1));
+        Assert.True(InPlaceEncryptionService.IsFileEncrypted(f2));
+        Assert.True(InPlaceEncryptionService.IsFileEncrypted(f3));
+        Assert.DoesNotContain("ROOT-DATA-机密", File.ReadAllText(f1));
+
+        // 解密后所有层级内容还原
+        InPlaceEncryptionService.DecryptFolder(dir, ValidPassword);
+        Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
+        Assert.Equal("ROOT-DATA-机密", File.ReadAllText(f1));
+        Assert.Equal("MID-DATA", File.ReadAllText(f2));
+        Assert.Equal("LEAF-DATA", File.ReadAllText(f3));
+    }
+
+    [Fact]
+    public void Folder_RecoveryCode_DecryptsAllFiles()
+    {
+        string dir = Path.Combine(_dir, "recfolder");
+        Directory.CreateDirectory(Path.Combine(dir, "sub"));
+        File.WriteAllText(Path.Combine(dir, "a.txt"), "AAA");
+        File.WriteAllText(Path.Combine(dir, "sub", "b.txt"), "BBB");
+
+        // 所有文件共用同一恢复码
+        string recovery = InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+        Assert.True(InPlaceEncryptionService.IsFolderEncrypted(dir));
+
+        // 密码已忘：仅凭恢复码解密整个文件夹
+        InPlaceEncryptionService.DecryptFolder(dir, password: null, recoveryCode: recovery);
+        Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
+        Assert.Equal("AAA", File.ReadAllText(Path.Combine(dir, "a.txt")));
+        Assert.Equal("BBB", File.ReadAllText(Path.Combine(dir, "sub", "b.txt")));
+    }
+
+    [Fact]
+    public void Folder_Decrypt_OldStyleAclOnly_StillWorks()
+    {
+        // 旧版（< v1.0.14.7）加密：仅放置标记 + ACL 封锁，内部文件未加密。
+        // 新版解密需跳过未加密文件，仅移除标记与封锁，保证旧加密文件夹可正常解锁。
+        string dir = Path.Combine(_dir, "oldstyle");
+        Directory.CreateDirectory(dir);
+        string plain = Path.Combine(dir, "plain.txt");
+        File.WriteAllText(plain, "plain content");
+
+        // 生成一个合法加密载荷作为旧版标记（标记需 Hidden + 有效密文头）
+        string tmp = Path.Combine(_dir, "_marker_src.dat");
+        File.WriteAllText(tmp, "marker");
+        InPlaceEncryptionService.EncryptFile(tmp, ValidPassword);
+        string markerPath = Path.Combine(dir, InPlaceEncryptionService.FolderLockFileName);
+        File.Copy(tmp, markerPath);
+        File.SetAttributes(markerPath, FileAttributes.Hidden | FileAttributes.System);
+
+        InPlaceEncryptionService.LockFolderAcl(dir);
+        Assert.True(InPlaceEncryptionService.IsFolderEncrypted(dir));
+        // 旧版行为：内部文件未被加密
+        Assert.False(InPlaceEncryptionService.IsFileEncrypted(plain));
+
+        InPlaceEncryptionService.DecryptFolder(dir, ValidPassword);
+        Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
+        Assert.Equal("plain content", File.ReadAllText(plain)); // 未加密文件不被改动
     }
 
     [Fact]

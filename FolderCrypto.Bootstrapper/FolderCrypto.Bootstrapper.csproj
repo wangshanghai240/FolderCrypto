@@ -11,7 +11,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <Platforms>x64</Platforms>
-    <Version>1.0.14.6</Version>
+    <Version>1.0.14.7</Version>
     <AssemblyTitle>FolderCrypto 文件夹加密 安装程序</AssemblyTitle>
     <Product>FolderCrypto 文件夹加密</Product>
     <Description>FolderCrypto 文件夹加密 安装引导程序（自研 WPF UI，静默安装内置 MSI）</Description>
