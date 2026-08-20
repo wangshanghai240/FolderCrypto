@@ -128,14 +128,14 @@ public sealed partial class PromptWindow : Window
         {
             // 文件夹：递归加密所有文件，展示实时进度
             ShowProgress("正在加密… 0%");
-            var progress = new Progress<int>(p => UpdateProgress(p, $"正在加密… {p}%"));
+            var progress = CreateProgress("正在加密… {0}%");
             await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFolder(_targetPath, pwd, progress));
         }
         else
         {
             // 文件：展示实时进度
             ShowProgress("正在加密… 0%");
-            var progress = new Progress<int>(p => UpdateProgress(p, $"正在加密… {p}%"));
+            var progress = CreateProgress("正在加密… {0}%");
             await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFile(_targetPath, pwd, progress));
         }
 
@@ -187,7 +187,7 @@ public sealed partial class PromptWindow : Window
         if (isFolder)
         {
             ShowProgress("正在解密… 0%");
-            var progress = new Progress<int>(p => UpdateProgress(p, $"正在解密… {p}%"));
+            var progress = CreateProgress("正在解密… {0}%");
             await Task.Run(() =>
             {
                 if (isRecovery) InPlaceEncryptionService.DecryptFolder(_targetPath, null, secret, progress);
@@ -197,7 +197,7 @@ public sealed partial class PromptWindow : Window
         else
         {
             ShowProgress("正在解密… 0%");
-            var progress = new Progress<int>(p => UpdateProgress(p, $"正在解密… {p}%"));
+            var progress = CreateProgress("正在解密… {0}%");
             await Task.Run(() =>
             {
                 if (isRecovery) InPlaceEncryptionService.DecryptFile(_targetPath, null, secret, progress);
@@ -262,20 +262,30 @@ public sealed partial class PromptWindow : Window
         FitToContent();
     }
 
-    /// <summary>更新进度条与状态文字。</summary>
+    /// <summary>更新进度条与状态文字（仅在 UI 线程调用）。</summary>
     private void UpdateProgress(int percent, string status)
     {
-        DispatcherQueue.TryEnqueue(() =>
+        if (_progressBar != null) _progressBar.Value = Math.Clamp(percent, 0, 100);
+        if (_progressText != null) _progressText.Text = status;
+    }
+
+    /// <summary>创建经 DispatcherQueue 编组到 UI 线程的进度回调（不依赖 SynchronizationContext，WinUI3 下更可靠）。</summary>
+    private IProgress<int> CreateProgress(string statusFormat)
+        => new DispatcherQueueProgress(DispatcherQueue, p => UpdateProgress(p, string.Format(statusFormat, p)));
+
+    /// <summary>把后台线程的进度上报投递到 UI 线程的 DispatcherQueue 执行。</summary>
+    private sealed class DispatcherQueueProgress : IProgress<int>
+    {
+        private readonly Microsoft.UI.Dispatching.DispatcherQueue _queue;
+        private readonly Action<int> _action;
+
+        public DispatcherQueueProgress(Microsoft.UI.Dispatching.DispatcherQueue queue, Action<int> action)
         {
-            if (_progressBar != null) _progressBar.Value = Math.Clamp(percent, 0, 100);
-        });
-        if (_progressText != null)
-        {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (_progressText != null) _progressText.Text = status;
-            });
+            _queue = queue;
+            _action = action;
         }
+
+        public void Report(int value) => _queue.TryEnqueue(() => _action(value));
     }
 
     /// <summary>把窗口内容替换为“加密完成 + 恢复码”结果页。</summary>

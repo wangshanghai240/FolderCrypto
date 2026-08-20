@@ -679,12 +679,20 @@ public sealed class ContainerService
             }
         }
 
+        /// <summary>递归枚举文件夹内所有文件；失败（如无权限子目录/路径过长）时抛出明确错误，避免静默只加锁不加密。</summary>
+        private static string[] EnumerateFiles(string folderPath)
+        {
+            try { return Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories); }
+            catch (Exception ex)
+            {
+                throw new IOException($"无法枚举文件夹内文件（可能存在无权限的子文件夹或路径过长）：{ex.Message}", ex);
+            }
+        }
+
         /// <summary>递归加密文件夹内所有文件（跳过已加密与标记文件），并把每个文件的内部进度映射到文件夹整体进度。</summary>
         private static void EncryptFilesRecursive(string folderPath, string password, string recoveryCode, IProgress<int>? progress)
         {
-            string[] files;
-            try { files = Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories); }
-            catch { files = Array.Empty<string>(); }
+            string[] files = EnumerateFiles(folderPath);
 
             for (int i = 0; i < files.Length; i++)
             {
@@ -710,14 +718,15 @@ public sealed class ContainerService
                     throw new IOException($"加密失败：文件正被其他程序占用或无法访问：{f}\n请关闭正在使用的文件后重试。", ex);
                 }
             }
+
+            // 保证结束时进度到达 100%（含空文件夹/全部文件被跳过的情况）
+            progress?.Report(100);
         }
 
         /// <summary>递归解密文件夹内所有已加密文件（跳过标记文件与未加密文件），并把每个文件的内部进度映射到文件夹整体进度。</summary>
         private static void DecryptFilesRecursive(string folderPath, string? password, string? recoveryCode, IProgress<int>? progress)
         {
-            string[] files;
-            try { files = Directory.GetFiles(folderPath, "*", SearchOption.AllDirectories); }
-            catch { files = Array.Empty<string>(); }
+            string[] files = EnumerateFiles(folderPath);
 
             for (int i = 0; i < files.Length; i++)
             {
@@ -741,6 +750,9 @@ public sealed class ContainerService
                     throw new IOException($"解密失败：文件正被其他程序占用或无法访问：{f}\n请关闭正在使用的文件后重试。", ex);
                 }
             }
+
+            // 保证结束时进度到达 100%
+            progress?.Report(100);
         }
 
         /// <summary>把某个文件的内部进度(0-100)映射为文件夹整体进度，保证进度条随文件内部进度实时前进。</summary>

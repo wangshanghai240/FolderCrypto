@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using FolderCrypto.Core.Encryption;
 using FolderCrypto.Core.Security;
 using FolderCrypto.Core.Services;
@@ -323,6 +324,60 @@ public class InPlaceEncryptionTests : IDisposable
     {
         public List<int> Reports { get; } = new();
         public void Report(int value) => Reports.Add(value);
+    }
+
+    [Fact]
+    public async Task Folder_Encrypt_ProgressDeliveredViaSynchronizationContext()
+    {
+        // 复刻 App 场景：在“UI 线程”（带 SynchronizationContext）创建 Progress<int>，
+        // 由后台线程执行加密，回调应投递回该上下文并被收到（防止 WinUI 下进度丢失）。
+        string dir = Path.Combine(_dir, "cross");
+        Directory.CreateDirectory(dir);
+        // 大于单个分块(4MB)，确保加密过程中有中间进度值
+        File.WriteAllBytes(Path.Combine(dir, "a.bin"), new byte[9 * 1024 * 1024]);
+
+        var delivered = new List<int>();
+        var ui = new StubSynchronizationContext();
+        SynchronizationContext? prev = SynchronizationContext.Current;
+        // 仅在创建 Progress<int> 时挂载“UI 上下文”让其捕获，随后立即恢复当前上下文，
+        // 避免 await 的续体也投递到该上下文（无人 Drain 会导致死锁、测试卡死）。
+        SynchronizationContext.SetSynchronizationContext(ui);
+        var progress = new Progress<int>(p => delivered.Add(p));
+        SynchronizationContext.SetSynchronizationContext(prev);
+
+        await Task.Run(() => InPlaceEncryptionService.EncryptFolder(dir, ValidPassword, progress));
+
+        // 现在安全地排空 UI 上下文里积压的进度回调
+        ui.Drain();
+
+        Assert.NotEmpty(delivered);
+        Assert.Contains(delivered, p => p is > 0 and < 100);
+        Assert.Equal(100, delivered[^1]);
+    }
+
+    /// <summary>记录 Post 回调的同步上下文，用于验证进度跨线程投递。</summary>
+    private sealed class StubSynchronizationContext : SynchronizationContext
+    {
+        private readonly Queue<(SendOrPostCallback, object?)> _queue = new();
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            lock (_queue) _queue.Enqueue((d, state));
+        }
+
+        public void Drain()
+        {
+            while (true)
+            {
+                (SendOrPostCallback, object?)? item;
+                lock (_queue)
+                {
+                    if (_queue.Count == 0) return;
+                    item = _queue.Dequeue();
+                }
+                item.Value.Item1.Invoke(item.Value.Item2);
+            }
+        }
     }
 
     [Fact]
