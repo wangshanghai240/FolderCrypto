@@ -12,4 +12,7 @@
     <SolidColorBrush x:Key="Divider"         Color="#E4E4E4" />
     <SolidColorBrush x:Key="SuccessBrush"    Color="#107C10" />
     <SolidColorBrush x:Key="ErrorBrush"      Color="#C42B1C" />
+    <!-- 按钮悬停/按下叠加：半透明黑使悬停时背景轻微变暗，保证文字可读 -->
+    <SolidColorBrush x:Key="ButtonHoverOverlay"   Color="#15000000" />
+    <SolidColorBrush x:Key="ButtonPressedOverlay" Color="#2D000000" />
 </ResourceDictionary>

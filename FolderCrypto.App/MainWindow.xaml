@@ -200,16 +200,15 @@
                                                    Style="{ThemeResource CaptionTextBlockStyle}"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     </StackPanel>
-                                    <!-- 开/关滑动开关：跟随系统启动时旋钮在右并显示“开”，关闭时旋钮在左显示“关” -->
-                                    <ToggleButton x:Name="AutoStartSwitch"
+                                    <!-- WinUI3 原生开关：随系统启动 -->
+                                    <ToggleSwitch x:Name="AutoStartSwitch"
                                                   Grid.Column="1"
-                                                  Width="58" Height="28"
-                                                  Padding="0"
+                                                  MinWidth="54"
                                                   VerticalAlignment="Center"
                                                   IsTabStop="False"
-                                                  Template="{StaticResource SwitchToggleTemplate}"
-                                                  Checked="OnAutoStartToggled"
-                                                  Unchecked="OnAutoStartToggled"/>
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  Toggled="OnAutoStartToggled"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -237,15 +236,15 @@
                                                    Style="{ThemeResource CaptionTextBlockStyle}"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     </StackPanel>
-                                    <ToggleButton x:Name="ShowTrayIconSwitch"
+                                    <!-- WinUI3 原生开关：显示系统托盘图标 -->
+                                    <ToggleSwitch x:Name="ShowTrayIconSwitch"
                                                   Grid.Column="1"
-                                                  Width="58" Height="28"
-                                                  Padding="0"
+                                                  MinWidth="54"
                                                   VerticalAlignment="Center"
                                                   IsTabStop="False"
-                                                  Template="{StaticResource SwitchToggleTemplate}"
-                                                  Checked="OnShowTrayIconToggled"
-                                                  Unchecked="OnShowTrayIconToggled"/>
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  Toggled="OnShowTrayIconToggled"/>
                                 </Grid>
                             </StackPanel>
                         </Border>

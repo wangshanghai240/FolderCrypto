@@ -40,15 +40,14 @@ public sealed partial class MainWindow : Window
 
         // 开机自启开关：按当前注册表状态初始化（抑制事件，避免误触发开关/托盘）
         _suppressAutoStartEvent = true;
-        AutoStartSwitch.IsChecked = StartupService.IsEnabled;
+        AutoStartSwitch.IsOn = StartupService.IsEnabled;
         _suppressAutoStartEvent = false;
         UpdateAutoStartUi();
 
         // 托盘图标开关：按已保存设置初始化（抑制事件，避免初始化时误触发显示/隐藏）
         _suppressTrayIconEvent = true;
-        ShowTrayIconSwitch.IsChecked = SettingsService.ShowTrayIcon;
+        ShowTrayIconSwitch.IsOn = SettingsService.ShowTrayIcon;
         _suppressTrayIconEvent = false;
-        UpdateTrayIconUi();
 
         // 关于：显示当前版本号
         VersionText.Text = "v" + UpdateService.CurrentVersion;
@@ -246,12 +245,12 @@ public sealed partial class MainWindow : Window
     {
         if (_suppressAutoStartEvent) return;
 
-        bool want = AutoStartSwitch.IsChecked == true;
+        bool want = AutoStartSwitch.IsOn;
         if (!StartupService.SetEnabled(want))
         {
             // 写入失败：回滚开关并提示（例如注册表被策略锁定）
             _suppressAutoStartEvent = true;
-            AutoStartSwitch.IsChecked = !want;
+            AutoStartSwitch.IsOn = !want;
             _suppressAutoStartEvent = false;
             _ = DialogHelper.ShowInfo(this, want ? "启用开机自启失败。" : "取消开机自启失败。");
             return;
@@ -269,21 +268,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateAutoStartUi()
     {
-        UpdateStartupToggleVisuals();
-        AutoStartStatusText.Text = AutoStartSwitch.IsChecked == true
+        AutoStartStatusText.Text = AutoStartSwitch.IsOn
             ? "当前状态：已开启，登录后将在后台静默常驻。"
             : "当前状态：未开启。";
-    }
-
-    /// <summary>同步“开/关”滑动开关外观：通过 VisualStateManager 切换旋钮位置与开/关文字。</summary>
-    private void UpdateStartupToggleVisuals()
-    {
-        try
-        {
-            VisualStateManager.GoToState(AutoStartSwitch,
-                AutoStartSwitch.IsChecked == true ? "Checked" : "Unchecked", true);
-        }
-        catch { }
     }
 
     // ---------- 系统托盘图标显示 ----------
@@ -293,7 +280,7 @@ public sealed partial class MainWindow : Window
     {
         if (_suppressTrayIconEvent) return;
 
-        bool show = ShowTrayIconSwitch.IsChecked == true;
+        bool show = ShowTrayIconSwitch.IsOn;
         SettingsService.ShowTrayIcon = show;
 
         if (show)
@@ -306,24 +293,6 @@ public sealed partial class MainWindow : Window
             // 关闭后立即隐藏托盘图标
             App.HideTrayIcon();
         }
-
-        UpdateTrayIconUi();
-    }
-
-    private void UpdateTrayIconUi()
-    {
-        UpdateTrayIconToggleVisuals();
-    }
-
-    /// <summary>同步“开/关”滑动开关外观：通过 VisualStateManager 切换旋钮位置与开/关文字。</summary>
-    private void UpdateTrayIconToggleVisuals()
-    {
-        try
-        {
-            VisualStateManager.GoToState(ShowTrayIconSwitch,
-                ShowTrayIconSwitch.IsChecked == true ? "Checked" : "Unchecked", true);
-        }
-        catch { }
     }
 
     // ---------- 软件更新 ----------
