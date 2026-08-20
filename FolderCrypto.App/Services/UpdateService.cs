@@ -126,9 +126,12 @@ public static class UpdateService
     /// </summary>
     public static async Task<(string? Path, string? Error)> DownloadAsync(string url, string fileName, IProgress<int>? progress = null)
     {
-        string downloads = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Downloads");
+        // 用户自选的下载目录；未设置时使用系统「下载」文件夹
+        string downloads = SettingsService.DownloadDirectory ?? "";
+        if (string.IsNullOrWhiteSpace(downloads))
+            downloads = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Downloads");
         Directory.CreateDirectory(downloads);
         string dest = Path.Combine(downloads, fileName);
 

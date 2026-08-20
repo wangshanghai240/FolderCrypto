@@ -52,6 +52,7 @@ public sealed partial class MainWindow : Window
 
         // 关于：显示当前版本号
         VersionText.Text = "v" + UpdateService.CurrentVersion;
+        UpdateDownloadDirText();
 
         // 主题变化时刷新设置页 UI
         ThemeService.Changed += () => UpdateSettingsUi();
@@ -326,6 +327,38 @@ public sealed partial class MainWindow : Window
     }
 
     // ---------- 软件更新 ----------
+
+    /// <summary>刷新「下载位置」显示文本。</summary>
+    private void UpdateDownloadDirText()
+    {
+        var dir = SettingsService.DownloadDirectory;
+        DownloadDirText.Text = string.IsNullOrWhiteSpace(dir)
+            ? "默认（系统下载文件夹）"
+            : dir;
+    }
+
+    /// <summary>「更改…」按钮：让用户自选安装包下载目录并持久化保存。</summary>
+    private async void OnChangeDownloadDir(object sender, RoutedEventArgs e)
+    {
+        var picker = new Windows.Storage.Pickers.FolderPicker
+        {
+            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Downloads
+        };
+        picker.FileTypeFilter.Add("*");
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        }
+        catch { }
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder == null) return;
+
+        SettingsService.DownloadDirectory = folder.Path;
+        UpdateDownloadDirText();
+        UpdateStatusText.Text = $"下载目录已设为：{folder.Path}";
+    }
 
     /// <summary>「检查更新」按钮：查询 GitHub Releases 最新版本并给出下载入口。</summary>
     private async void OnCheckUpdate(object sender, RoutedEventArgs e)

@@ -21,6 +21,7 @@ public static class SettingsService
     private const string ConfigFileName = "settings.json";
 
     private static bool _showTrayIcon = true;   // 默认在系统托盘中显示图标
+    private static string? _downloadDirectory;  // 更新包下载目录；为空表示使用系统「下载」文件夹
     private static string? _configPath;
     private static bool _initialized;
 
@@ -33,6 +34,19 @@ public static class SettingsService
             EnsureLoaded();
             if (_showTrayIcon == value) return;
             _showTrayIcon = value;
+            Save();
+        }
+    }
+
+    /// <summary>更新安装包的下载目录；为空表示使用系统「下载」文件夹。</summary>
+    public static string? DownloadDirectory
+    {
+        get { EnsureLoaded(); return _downloadDirectory; }
+        set
+        {
+            EnsureLoaded();
+            if (_downloadDirectory == value) return;
+            _downloadDirectory = value;
             Save();
         }
     }
@@ -57,6 +71,7 @@ public static class SettingsService
             var cfg = JsonSerializer.Deserialize(json, SettingsConfigJsonContext.Default.SettingsConfig);
             if (cfg == null) return;
             _showTrayIcon = cfg.ShowTrayIcon;
+            _downloadDirectory = string.IsNullOrWhiteSpace(cfg.DownloadDirectory) ? null : cfg.DownloadDirectory;
         }
         catch
         {
@@ -71,7 +86,7 @@ public static class SettingsService
             if (_configPath == null) return;
             string? dir = Path.GetDirectoryName(_configPath);
             if (dir != null) Directory.CreateDirectory(dir);
-            var cfg = new SettingsConfig { ShowTrayIcon = _showTrayIcon };
+            var cfg = new SettingsConfig { ShowTrayIcon = _showTrayIcon, DownloadDirectory = _downloadDirectory };
             File.WriteAllText(_configPath, JsonSerializer.Serialize(cfg, SettingsConfigJsonContext.Default.SettingsConfig));
         }
         catch
@@ -83,5 +98,8 @@ public static class SettingsService
     internal sealed class SettingsConfig
     {
         public bool ShowTrayIcon { get; set; } = true;
+
+        /// <summary>更新安装包下载目录；为空表示使用系统「下载」文件夹。</summary>
+        public string? DownloadDirectory { get; set; }
     }
 }

@@ -278,6 +278,24 @@
                                             VerticalAlignment="Center"
                                             Click="OnCheckUpdate"/>
                                 </Grid>
+
+                                <!-- 下载位置：用户可自选安装包下载目录 -->
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Text="下载位置" Style="{ThemeResource BodyStrongTextBlockStyle}"/>
+                                        <TextBlock x:Name="DownloadDirText"
+                                                   Style="{ThemeResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Content="更改…"
+                                            VerticalAlignment="Center"
+                                            Click="OnChangeDownloadDir"/>
+                                </Grid>
                                 <TextBlock x:Name="UpdateStatusText"
                                            Style="{ThemeResource CaptionTextBlockStyle}"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
