@@ -285,25 +285,34 @@ public sealed class ContainerService
 // ===========================================================================
 // 原地加密/解密服务（不再使用容器）。
 //
-// 文件：把原文件字节就地改写为
-//   [magic "FCENC000"][ver=2][pwdSalt(16)][pwdVerifier(32)][recSalt(16)][recVerifier(32)]
-//   [wrapLen(4)][wrappedDataKey_byPwd][wrappedDataKey_byRecovery][AES-GCM(dataKey) 密文]
+// 文件（ver=3）：把原文件字节就地改写为
+//   [magic "FCENC000"][ver=3][pwdSalt(16)][pwdVerifier(32)][recSalt(16)][recVerifier(32)]
+//   [wrapLen(4)][wrappedDataKey_byPwd][wrappedDataKey_byRecovery]
+//   后接若干“分块”：[chunkLen(4)][nonce(12)][AES-GCM 密文块][tag(16)] × N
 //   - dataKey 为随机 32 字节；分别用“密码派生的密钥”和“恢复码派生的密钥”各包裹一次。
 //   - 解密时输入密码或恢复码任一正确，都能解开 dataKey 从而解密。
+//   - 分块流式加解密 → 内存峰值 ≈ 一个分块（4MB），与文件大小无关。
+//   - 兼容读取旧版 ver=2（单条 AES-GCM 整文件，整块解密）。
 //
-// 文件夹：只加密“文件夹本身”，不改动内部内容。
-//   在文件夹内放置隐藏的 .folderlock 标记文件（同样含 password/recovery 两套验证与包裹），
-//   不改文件夹自身属性（不隐藏）。
+// 文件夹：递归加密文件夹内所有文件（ver=3），并在文件夹内放置隐藏的
+//   .folderlock 标记文件（ver=2 单块格式，体积极小；同样含 password/recovery 两套验证），
+//   然后以 ACL 封锁禁止浏览/进入、禁止拖入未加密内容。文件夹自身属性不改（不隐藏）。
 // ===========================================================================
     /// <summary>原地加密/解密（文件 + 文件夹锁定，密码/恢复码双通道）。</summary>
     public static class InPlaceEncryptionService
     {
         private const string Magic = "FCENC000";        // 8 bytes
-        private const byte Version = 2;
+        private const byte Version = 3;                 // 当前写入版本：分块流式加解密（内存有界）
+        private const byte LegacyVersion = 2;           // 旧版本：单条 AES-GCM 整文件（读取兼容）
         private const int SaltSize = 16;
         private const int VerifierSize = 32;
         private const int DataKeySize = 32;
         private const int WrapLenFieldSize = 4;
+        private const int NonceSize = 12;               // AES-GCM nonce
+        private const int TagSize = 16;                 // AES-GCM 认证标签
+
+        /// <summary>分块大小（4MB）：流式加解密内存峰值与文件大小无关。</summary>
+        private const int ChunkSize = 4 * 1024 * 1024;
 
         /// <summary>文件夹加密锁定标记文件名。</summary>
         public const string FolderLockFileName = ".folderlock";
@@ -363,27 +372,80 @@ public sealed class ContainerService
             return recoveryCode;
         }
 
-        /// <summary>用指定恢复码原地加密文件（文件夹递归加密时所有文件共用同一恢复码）。</summary>
+        /// <summary>用指定恢复码流式加密文件（ver=3 分块，内存有界）。文件夹递归加密时所有文件共用同一恢复码。</summary>
         private static void EncryptFileWithRecovery(string filePath, string password, string recoveryCode, IProgress<int>? fileProgress = null)
         {
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("文件不存在。", filePath);
 
-            // 读取原文件（分块，报告进度 0-50）
+            // 随机数据密钥：分别用“密码派生的密钥”与“恢复码派生的密钥”各包裹一次
+            byte[] dataKey = System.Security.Cryptography.RandomNumberGenerator.GetBytes(DataKeySize);
+            byte[] pwdSalt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(SaltSize);
+            byte[] passwordKey = PasswordHasher.DeriveKey(password, pwdSalt);
+            byte[] recSalt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(SaltSize);
+            byte[] recoveryKey = PasswordHasher.DeriveKey(NormalizeRecoveryCode(recoveryCode), recSalt);
+
+            byte[] wrapPwd = AesGcmEncryption.Encrypt(HkdfDerive(passwordKey, WrapPwdInfo), dataKey);
+            byte[] wrapRec = AesGcmEncryption.Encrypt(HkdfDerive(recoveryKey, WrapRecInfo), dataKey);
+
+            // 头部：magic + 版本(3) + 两套 salt/verifier + wrapLen
+            int headLen = Magic.Length + 1 + 2 * (SaltSize + VerifierSize) + WrapLenFieldSize;
+            var head = new byte[headLen];
+            int o = 0;
+            MagicBytes.CopyTo(head, o); o += Magic.Length;
+            head[o++] = Version;
+            pwdSalt.CopyTo(head, o); o += SaltSize;
+            SHA256.HashData(passwordKey).CopyTo(head, o); o += VerifierSize;      // pwdVerifier
+            recSalt.CopyTo(head, o); o += SaltSize;
+            SHA256.HashData(recoveryKey).CopyTo(head, o); o += VerifierSize;      // recVerifier
+            BitConverter.GetBytes(wrapPwd.Length).CopyTo(head, o); o += WrapLenFieldSize;
+
+            // 流式：分块 AES-GCM，逐块 [len4][nonce12][ciphertext][tag16] 写出（内存峰值 ≈ 一个分块）
+            string tmp = filePath + ".tmp";
+            long total = new FileInfo(filePath).Length;
             fileProgress?.Report(0);
-            byte[] content = ReadFileWithProgress(filePath, fileProgress, 0, 50);
+            using (var src = File.OpenRead(filePath))
+            using (var dst = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+            {
+                dst.Write(head, 0, head.Length);
+                dst.Write(wrapPwd, 0, wrapPwd.Length);
+                dst.Write(wrapRec, 0, wrapRec.Length);
 
-            // 加密（含头/密钥包裹）。整段加密后报告 85。
-            byte[] payload = BuildPayload(content, password, recoveryCode);
-            fileProgress?.Report(85);
+                var chunk = new byte[ChunkSize];
+                long done = 0;
+                using var aes = new AesGcm(dataKey, TagSize);
+                int n;
+                while ((n = src.Read(chunk, 0, chunk.Length)) > 0)
+                {
+                    var nonce = System.Security.Cryptography.RandomNumberGenerator.GetBytes(NonceSize);
+                    var ciphertext = new byte[n];
+                    var tag = new byte[TagSize];
+                    aes.Encrypt(nonce, chunk.AsSpan(0, n), ciphertext, tag);
 
-            // 写回（报告 85-100）
-            WriteFileWithProgress(filePath, payload, fileProgress, 85, 100);
+                    dst.Write(BitConverter.GetBytes(n), 0, 4);
+                    dst.Write(nonce, 0, nonce.Length);
+                    dst.Write(ciphertext, 0, n);
+                    dst.Write(tag, 0, tag.Length);
 
-            CryptoUtil.Zero(content);
+                    Array.Clear(chunk, 0, n);   // 清零明文块
+                    done += n;
+                    if (fileProgress != null && total > 0)
+                        fileProgress.Report((int)(done * 100 / total));
+                }
+            }
+
+            File.Delete(filePath);
+            File.Move(tmp, filePath);
+
+            CryptoUtil.Zero(dataKey);
+            CryptoUtil.Zero(passwordKey);
+            CryptoUtil.Zero(recoveryKey);
+            CryptoUtil.Zero(wrapPwd);
+            CryptoUtil.Zero(wrapRec);
+            fileProgress?.Report(100);
         }
 
-        /// <summary>对已加密文件进行原地解密。输入密码或恢复码任一正确即可。</summary>
+        /// <summary>对已加密文件进行流式解密。新版 ver=3 分块（内存有界）；旧版 ver=2 整块解密兼容。密码或恢复码任一正确即可。</summary>
         public static void DecryptFile(string filePath, string? password = null, string? recoveryCode = null, IProgress<int>? progress = null)
         {
             if (!File.Exists(filePath))
@@ -391,57 +453,107 @@ public sealed class ContainerService
             if (!IsFileEncrypted(filePath))
                 throw new InvalidOperationException("该文件不是已加密的文件。");
 
-            progress?.Report(0);
-            byte[] cipher = ReadFileWithProgress(filePath, progress, 0, 50);
-
-            byte[] plain = DecryptPayload(cipher, encrypted: true, password, recoveryCode);
-            progress?.Report(85);
-
+            long total = new FileInfo(filePath).Length;
             string tmp = filePath + ".tmp";
-            File.WriteAllBytes(tmp, plain);
-            // 写回后删除原文件并替换
+            progress?.Report(0);
+
+            using (var fs = File.OpenRead(filePath))
+            {
+                var h = ReadContainerHeader(fs);
+                byte[] dataKey = UnwrapDataKey(fs, h, password, recoveryCode);
+
+                using var dst = new FileStream(tmp, FileMode.Create, FileAccess.Write);
+                if (h.Version <= LegacyVersion)
+                {
+                    // 旧版 ver=2：整份密文是单条 AES-GCM 消息（只能整块解密，兼容旧文件）
+                    byte[] payload = new byte[fs.Length - fs.Position];
+                    fs.ReadExactly(payload);
+                    byte[] plain = AesGcmEncryption.Decrypt(dataKey, payload);
+                    dst.Write(plain, 0, plain.Length);
+                    CryptoUtil.Zero(plain);
+                    CryptoUtil.Zero(payload);
+                }
+                else
+                {
+                    DecryptChunks(fs, dst, dataKey, progress, total);
+                }
+
+                CryptoUtil.Zero(dataKey);
+            }
+
             File.Delete(filePath);
             File.Move(tmp, filePath);
-            /* 进度在替换后视为 100 */
-
-            CryptoUtil.Zero(plain);
-            CryptoUtil.Zero(cipher);
             progress?.Report(100);
         }
 
-        /// <summary>分块读取文件并按读取量报告进度（from..to 百分比区间）。</summary>
-        private static byte[] ReadFileWithProgress(string path, IProgress<int>? progress, int from, int to)
+        /// <summary>读取两段包裹密钥并解开数据密钥；密码或恢复码任一正确即可，均失败抛异常。</summary>
+        private static byte[] UnwrapDataKey(Stream fs, HeaderInfo h, string? password, string? recoveryCode)
         {
-            FileInfo fi = new FileInfo(path);
-            long total = fi.Length;
-            using var fs = File.OpenRead(path);
-            byte[] all = new byte[total];
-            const int chunk = 1 << 20; // 1MB
-            int read = 0;
-            while (read < total)
+            byte[] wrapPwd = new byte[h.WrapLen]; fs.ReadExactly(wrapPwd);
+            byte[] wrapRec = new byte[h.WrapLen]; fs.ReadExactly(wrapRec);
+
+            if (!string.IsNullOrEmpty(password))
             {
-                int n = fs.Read(all, read, (int)Math.Min(chunk, total - read));
-                if (n <= 0) break;
-                read += n;
-                if (progress != null && total > 0)
-                    progress.Report(from + (int)((double)(from == to ? 0 : (to - from)) * read / total));
+                byte[] passwordKey = PasswordHasher.DeriveKey(password, h.PwdSalt);
+                if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(passwordKey), h.PwdVerifier))
+                {
+                    var dataKey = UnwrapKey(wrapPwd, HkdfDerive(passwordKey, WrapPwdInfo));
+                    if (dataKey != null)
+                    {
+                        CryptoUtil.Zero(passwordKey); CryptoUtil.Zero(wrapPwd); CryptoUtil.Zero(wrapRec);
+                        return dataKey;
+                    }
+                }
+                CryptoUtil.Zero(passwordKey);
             }
-            return all;
+
+            if (!string.IsNullOrEmpty(recoveryCode))
+            {
+                byte[] recoveryKey = PasswordHasher.DeriveKey(NormalizeRecoveryCode(recoveryCode), h.RecSalt);
+                if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(recoveryKey), h.RecVerifier))
+                {
+                    var dataKey = UnwrapKey(wrapRec, HkdfDerive(recoveryKey, WrapRecInfo));
+                    if (dataKey != null)
+                    {
+                        CryptoUtil.Zero(recoveryKey); CryptoUtil.Zero(wrapPwd); CryptoUtil.Zero(wrapRec);
+                        return dataKey;
+                    }
+                }
+                CryptoUtil.Zero(recoveryKey);
+            }
+
+            CryptoUtil.Zero(wrapPwd);
+            CryptoUtil.Zero(wrapRec);
+            throw new CryptographicException("密码或恢复码错误，无法解密。");
         }
 
-        /// <summary>分块写文件并按写入量报告进度（from..to 百分比区间）。</summary>
-        private static void WriteFileWithProgress(string path, byte[] data, IProgress<int>? progress, int from, int to)
+        /// <summary>分块流式解密 ver=3 密文并写入目标流。</summary>
+        private static void DecryptChunks(Stream src, Stream dst, byte[] dataKey, IProgress<int>? progress, long total)
         {
-            using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
-            const int chunk = 1 << 20;
-            int written = 0;
-            while (written < data.Length)
+            var lenBuf = new byte[4];
+            using var aes = new AesGcm(dataKey, TagSize);
+            long done = 0;
+            while (true)
             {
-                int n = (int)Math.Min(chunk, data.Length - written);
-                fs.Write(data, written, n);
-                written += n;
-                if (progress != null && data.Length > 0)
-                    progress.Report(from + (int)((double)(from == to ? 0 : (to - from)) * written / data.Length));
+                int r = src.Read(lenBuf, 0, 4);
+                if (r == 0) break;                    // 正常结束
+                if (r < 4) throw new CryptographicException("文件已损坏：块长度字段不完整。");
+                int chunkLen = BitConverter.ToInt32(lenBuf, 0);
+                if (chunkLen <= 0 || chunkLen > ChunkSize)
+                    throw new CryptographicException("文件已损坏：非法块长度。");
+
+                var nonce = new byte[NonceSize]; src.ReadExactly(nonce);
+                var ciphertext = new byte[chunkLen]; src.ReadExactly(ciphertext);
+                var tag = new byte[TagSize]; src.ReadExactly(tag);
+
+                var plain = new byte[chunkLen];
+                aes.Decrypt(nonce, ciphertext, tag, plain);
+                dst.Write(plain, 0, plain.Length);
+                Array.Clear(plain, 0, plain.Length);
+
+                done += chunkLen;
+                if (progress != null && total > 0)
+                    progress.Report((int)(done * 100 / total));
             }
         }
 
@@ -729,7 +841,7 @@ public sealed class ContainerService
             var head = new byte[headLen];
             int o = 0;
             MagicBytes.CopyTo(head, o); o += Magic.Length;
-            head[o++] = Version;
+            head[o++] = LegacyVersion;   // 标记保持旧版单块格式（体积极小，无内存问题）
             pwdSalt.CopyTo(head, o); o += SaltSize;
             SHA256.HashData(passwordKey).CopyTo(head, o); o += VerifierSize;      // pwdVerifier
             recSalt.CopyTo(head, o); o += SaltSize;
@@ -813,10 +925,10 @@ public sealed class ContainerService
                 throw new InvalidDataException("不是有效的加密文件。");
 
             int ver = fs.ReadByte();
-            if (ver != Version)
+            if (ver != Version && ver != LegacyVersion)
                 throw new InvalidDataException($"不支持的版本: {ver}");
 
-            var h = new HeaderInfo();
+            var h = new HeaderInfo { Version = (byte)ver };
             h.PwdSalt = new byte[SaltSize]; fs.ReadExactly(h.PwdSalt);
             h.PwdVerifier = new byte[VerifierSize]; fs.ReadExactly(h.PwdVerifier);
             h.RecSalt = new byte[SaltSize]; fs.ReadExactly(h.RecSalt);
@@ -846,6 +958,7 @@ public sealed class ContainerService
 
         private sealed class HeaderInfo
         {
+            public byte Version;
             public byte[] PwdSalt = Array.Empty<byte>();
             public byte[] PwdVerifier = Array.Empty<byte>();
             public byte[] RecSalt = Array.Empty<byte>();

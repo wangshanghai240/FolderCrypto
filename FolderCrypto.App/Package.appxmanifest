@@ -10,7 +10,7 @@
   <Identity
     Name="FolderCrypto.App"
     Publisher="CN=FolderCrypto"
-    Version="1.0.14.7" />
+    Version="1.0.14.8" />
 
   <Properties>
     <DisplayName>Folder Crypto 文件夹加密</DisplayName>

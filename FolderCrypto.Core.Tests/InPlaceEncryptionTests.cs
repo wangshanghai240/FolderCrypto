@@ -1,4 +1,7 @@
 using System.Security.Cryptography;
+using System.Text;
+using FolderCrypto.Core.Encryption;
+using FolderCrypto.Core.Security;
 using FolderCrypto.Core.Services;
 using Xunit;
 
@@ -71,6 +74,69 @@ public class InPlaceEncryptionTests : IDisposable
         Assert.Throws<InvalidOperationException>(
             () => InPlaceEncryptionService.EncryptFile(file, ValidPassword));
     }
+
+    [Fact]
+    public void File_StreamingRoundTrip_LargeMultiChunk_Restores()
+    {
+        // 大于单个分块（4MB）的文件：验证分块流式加解密往返正确
+        string file = Path.Combine(_dir, "big.bin");
+        byte[] data = new byte[9 * 1024 * 1024]; // 9MB → 3 个分块
+        new Random(12345).NextBytes(data);
+        File.WriteAllBytes(file, data);
+
+        string rec = InPlaceEncryptionService.EncryptFile(file, ValidPassword);
+        Assert.True(InPlaceEncryptionService.IsFileEncrypted(file));
+        Assert.True(InPlaceEncryptionService.VerifyFilePassword(file, ValidPassword));
+
+        InPlaceEncryptionService.DecryptFile(file, ValidPassword);
+        Assert.False(InPlaceEncryptionService.IsFileEncrypted(file));
+        Assert.Equal(data, File.ReadAllBytes(file));
+    }
+
+    [Fact]
+    public void File_LegacyVer2_StillDecrypts()
+    {
+        // 旧版 ver=2 文件（整份密文为单条 AES-GCM）在新版本下仍可正常解密
+        string file = Path.Combine(_dir, "legacy.bin");
+        string plaintext = "legacy-ver2-data-机密";
+        byte[] plain = Encoding.UTF8.GetBytes(plaintext);
+        string rec = InPlaceEncryptionService.NormalizeRecoveryCode("TEST-RECOVERY-CODE-1234");
+
+        File.WriteAllBytes(file, BuildLegacyVer2Payload(plain, ValidPassword, rec));
+        Assert.True(InPlaceEncryptionService.VerifyFilePassword(file, ValidPassword));
+        Assert.True(InPlaceEncryptionService.VerifyFilePassword(file, rec, isRecovery: true));
+
+        InPlaceEncryptionService.DecryptFile(file, ValidPassword);
+        Assert.False(InPlaceEncryptionService.IsFileEncrypted(file));
+        Assert.Equal(plaintext, File.ReadAllText(file));
+    }
+
+    /// <summary>按旧版 ver=2 格式构造加密载荷（单条 AES-GCM 整文件），供兼容性测试使用。</summary>
+    private static byte[] BuildLegacyVer2Payload(byte[] content, string password, string recoveryCode)
+    {
+        byte[] dataKey = RandomNumberGenerator.GetBytes(32);
+        byte[] pwdSalt = RandomNumberGenerator.GetBytes(16);
+        byte[] pwdKey = PasswordHasher.DeriveKey(password, pwdSalt);
+        byte[] recSalt = RandomNumberGenerator.GetBytes(16);
+        byte[] recKey = PasswordHasher.DeriveKey(InPlaceEncryptionService.NormalizeRecoveryCode(recoveryCode), recSalt);
+
+        byte[] wrapPwd = AesGcmEncryption.Encrypt(Hkdf(pwdKey, "FolderCrypto:WrapPwd"), dataKey);
+        byte[] wrapRec = AesGcmEncryption.Encrypt(Hkdf(recKey, "FolderCrypto:WrapRec"), dataKey);
+        byte[] cipher = AesGcmEncryption.Encrypt(dataKey, content);
+
+        using var ms = new MemoryStream();
+        ms.Write(Encoding.ASCII.GetBytes("FCENC000"));
+        ms.WriteByte(2); // ver=2
+        ms.Write(pwdSalt); ms.Write(SHA256.HashData(pwdKey));
+        ms.Write(recSalt); ms.Write(SHA256.HashData(recKey));
+        ms.Write(BitConverter.GetBytes(wrapPwd.Length));
+        ms.Write(wrapPwd); ms.Write(wrapRec);
+        ms.Write(cipher);
+        return ms.ToArray();
+    }
+
+    private static byte[] Hkdf(byte[] ikm, string info)
+        => HKDF.DeriveKey(HashAlgorithmName.SHA256, ikm, 32, salt: null, Encoding.UTF8.GetBytes(info));
 
     [Fact]
     public void Folder_EncryptLockAndDecrypt_Restores()
@@ -198,12 +264,9 @@ public class InPlaceEncryptionTests : IDisposable
         string plain = Path.Combine(dir, "plain.txt");
         File.WriteAllText(plain, "plain content");
 
-        // 生成一个合法加密载荷作为旧版标记（标记需 Hidden + 有效密文头）
-        string tmp = Path.Combine(_dir, "_marker_src.dat");
-        File.WriteAllText(tmp, "marker");
-        InPlaceEncryptionService.EncryptFile(tmp, ValidPassword);
+        // 用旧版 ver=2 格式构造标记（标记需 Hidden + 有效密文头；旧版标记是单块格式）
         string markerPath = Path.Combine(dir, InPlaceEncryptionService.FolderLockFileName);
-        File.Copy(tmp, markerPath);
+        File.WriteAllBytes(markerPath, BuildLegacyVer2Payload(Array.Empty<byte>(), ValidPassword, "OLD-STYLE-MARKER"));
         File.SetAttributes(markerPath, FileAttributes.Hidden | FileAttributes.System);
 
         InPlaceEncryptionService.LockFolderAcl(dir);
