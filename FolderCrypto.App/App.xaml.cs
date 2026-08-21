@@ -28,6 +28,8 @@ public partial class App : Application
         ThemeService.Init();
         // 初始化应用设置（如是否显示系统托盘图标）。
         SettingsService.Init();
+        // 兜底：扫描临时解密清单，自动重新加密残留的明文
+        TemporaryUnlockService.CleanupOnStartup();
 
         // 若已经有实例在运行，则把命令行指令转发给已有实例并退出，实现单实例。
         if (SingleInstanceManager.TryForwardOrBecomePrimary(Environment.GetCommandLineArgs(), OnShellCommand))

@@ -22,6 +22,7 @@ public static class SettingsService
 
     private static bool _showTrayIcon = true;   // 默认在系统托盘中显示图标
     private static string? _downloadDirectory;  // 更新包下载目录；为空表示使用系统「下载」文件夹
+    private static bool _windowsHelloUnlock;    // 是否启用 Windows Hello 解锁
     private static string? _configPath;
     private static bool _initialized;
 
@@ -51,6 +52,19 @@ public static class SettingsService
         }
     }
 
+    /// <summary>是否启用 Windows Hello 解锁（需配合已保存的凭据）。</summary>
+    public static bool WindowsHelloUnlock
+    {
+        get { EnsureLoaded(); return _windowsHelloUnlock; }
+        set
+        {
+            EnsureLoaded();
+            if (_windowsHelloUnlock == value) return;
+            _windowsHelloUnlock = value;
+            Save();
+        }
+    }
+
     /// <summary>初始化并加载配置（幂等，应用启动时调用一次）。</summary>
     public static void Init() => EnsureLoaded();
 
@@ -72,6 +86,7 @@ public static class SettingsService
             if (cfg == null) return;
             _showTrayIcon = cfg.ShowTrayIcon;
             _downloadDirectory = string.IsNullOrWhiteSpace(cfg.DownloadDirectory) ? null : cfg.DownloadDirectory;
+            _windowsHelloUnlock = cfg.WindowsHelloUnlock;
         }
         catch
         {
@@ -86,7 +101,12 @@ public static class SettingsService
             if (_configPath == null) return;
             string? dir = Path.GetDirectoryName(_configPath);
             if (dir != null) Directory.CreateDirectory(dir);
-            var cfg = new SettingsConfig { ShowTrayIcon = _showTrayIcon, DownloadDirectory = _downloadDirectory };
+            var cfg = new SettingsConfig
+            {
+                ShowTrayIcon = _showTrayIcon,
+                DownloadDirectory = _downloadDirectory,
+                WindowsHelloUnlock = _windowsHelloUnlock
+            };
             File.WriteAllText(_configPath, JsonSerializer.Serialize(cfg, SettingsConfigJsonContext.Default.SettingsConfig));
         }
         catch
@@ -101,5 +121,8 @@ public static class SettingsService
 
         /// <summary>更新安装包下载目录；为空表示使用系统「下载」文件夹。</summary>
         public string? DownloadDirectory { get; set; }
+
+        /// <summary>是否启用 Windows Hello 解锁。</summary>
+        public bool WindowsHelloUnlock { get; set; }
     }
 }

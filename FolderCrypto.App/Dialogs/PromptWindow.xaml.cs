@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using FolderCrypto.App.Services;
 using FolderCrypto.Core.Security;
 using FolderCrypto.Core.Services;
 using Microsoft.UI.Xaml;
@@ -22,6 +23,7 @@ public sealed partial class PromptWindow : Window
     private ProgressBar? _progressBar;
     private TextBlock? _progressText;
     private CancellationTokenSource? _encryptCts;
+    private readonly bool _helloMode;   // 是否处于 Windows Hello 替代密码模式（隐藏密码输入界面）
 
     private PromptWindow(string targetPath, bool encryptMode)
     {
@@ -63,24 +65,52 @@ public sealed partial class PromptWindow : Window
             };
         }
 
+        _helloMode = HelloSecretStore.IsEnabled;
         if (encryptMode)
         {
             Title = "Folder Crypto - 加密";
             TitleIcon.Glyph = "\uE8F1";
             TitleText.Text = "加密";
-            DescText.Text = $"正在加密：{System.IO.Path.GetFileName(targetPath)}\n密码需超过 6 位，且包含数字、字母和特殊字符。";
             ModeSwitch.Visibility = Visibility.Collapsed;
-            StrengthPanel.Visibility = Visibility.Visible;
+            if (_helloMode)
+            {
+                // Windows Hello 替代密码：隐藏密码输入，直接通过 PIN/人脸加密
+                DescText.Text = $"正在加密：{System.IO.Path.GetFileName(targetPath)}\n已启用 Windows Hello 解锁，点击“确定”将通过 PIN/人脸加密。";
+                PasswordBox.Visibility = Visibility.Collapsed;
+                ConfirmBox.Visibility = Visibility.Collapsed;
+                StrengthPanel.Visibility = Visibility.Collapsed;
+                OkButton.Content = "Windows Hello 加密";
+                OkButton.IsEnabled = true;
+            }
+            else
+            {
+                DescText.Text = $"正在加密：{System.IO.Path.GetFileName(targetPath)}\n密码需超过 6 位，且包含数字、字母和特殊字符。";
+                StrengthPanel.Visibility = Visibility.Visible;
+            }
         }
         else
         {
             Title = "Folder Crypto - 解密";
             TitleIcon.Glyph = "\uE72E";
             TitleText.Text = "解密";
-            DescText.Text = $"正在解锁：{System.IO.Path.GetFileName(targetPath)}";
             ConfirmBox.Visibility = Visibility.Collapsed;
-            // 解密时必须显示“使用恢复码”切换开关
-            ModeSwitch.Visibility = Visibility.Visible;
+            if (_helloMode)
+            {
+                // Windows Hello 替代密码：隐藏密码/恢复码输入，直接通过 PIN/人脸解锁；提供“临时解密”
+                DescText.Text = $"正在解锁：{System.IO.Path.GetFileName(targetPath)}\n已启用 Windows Hello 解锁，点击“确定”将通过 PIN/人脸解锁。";
+                ModeSwitch.Visibility = Visibility.Collapsed;
+                PasswordBox.Visibility = Visibility.Collapsed;
+                RecoveryBox.Visibility = Visibility.Collapsed;
+                OkButton.Content = "Windows Hello 解锁";
+                OkButton.IsEnabled = true;
+                TempUnlockButton.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                DescText.Text = $"正在解锁：{System.IO.Path.GetFileName(targetPath)}";
+                // 解密时必须显示“使用恢复码”切换开关
+                ModeSwitch.Visibility = Visibility.Visible;
+            }
         }
     }
 
@@ -104,7 +134,12 @@ public sealed partial class PromptWindow : Window
     {
         try
         {
-            if (_encryptMode)
+            if (_helloMode)
+            {
+                if (_encryptMode) await DoHelloEncryptAsync();
+                else await DoHelloDecryptAsync();
+            }
+            else if (_encryptMode)
                 await DoEncryptAsync();
             else
                 await DoDecryptAsync();
@@ -220,6 +255,151 @@ public sealed partial class PromptWindow : Window
         }
 
         ShowDone("解密完成", "文件/文件夹已还原。");
+    }
+
+    /// <summary>Windows Hello 模式加密：通过 PIN/人脸认证后，用已保存的密码直接加密（不显示密码输入界面）。</summary>
+    private async Task DoHelloEncryptAsync()
+    {
+        var secret = HelloSecretStore.TryGetSecret();
+        if (secret == null)
+        {
+            ShowHint("未找到已保存的密码，请先在「设置 - 行为」中开启并保存。");
+            return;
+        }
+        if (HelloSecretStore.IsRecoveryKind(secret.Value.Kind))
+        {
+            ShowHint("当前保存的是恢复码，无法用于加密。请在设置中改为保存密码。");
+            return;
+        }
+
+        // 系统级 Windows Hello 认证（PIN / 人脸 / 指纹）
+        var status = await Windows.Security.Credentials.UI.UserConsentVerifier.RequestVerificationAsync(
+            "Folder Crypto 文件夹加密 - 加密");
+        if (status != Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+        {
+            ShowHint("Windows Hello 验证未通过，无法加密。");
+            return;
+        }
+
+        SetBusy(true);
+        string recovery = "";
+        bool isFolder = System.IO.Directory.Exists(_targetPath);
+
+        _encryptCts = new CancellationTokenSource();
+        try
+        {
+            if (isFolder)
+            {
+                ShowProgress("正在加密… 0%", allowCancel: true);
+                var progress = CreateProgress("正在加密… {0}%");
+                var ct = _encryptCts.Token;
+                await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFolder(_targetPath, secret.Value.Secret, progress, ct), ct);
+            }
+            else
+            {
+                ShowProgress("正在加密… 0%", allowCancel: true);
+                var progress = CreateProgress("正在加密… {0}%");
+                var ct = _encryptCts.Token;
+                await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFile(_targetPath, secret.Value.Secret, progress, ct), ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            ShowDone("已取消加密", isFolder ? "已自动还原本次已加密的文件/文件夹。" : "已取消加密，文件保持原状。");
+            return;
+        }
+
+        ShowRecovery(recovery);
+    }
+
+    /// <summary>Windows Hello 模式解密：通过 PIN/人脸认证后，用已保存的凭据直接解锁（不显示密码输入界面）。</summary>
+    private async Task DoHelloDecryptAsync()
+    {
+        var secret = HelloSecretStore.TryGetSecret();
+        if (secret == null)
+        {
+            ShowHint("未找到已保存的凭据，请先在「设置 - 行为」中开启并保存。");
+            return;
+        }
+
+        // 系统级 Windows Hello 认证（PIN / 人脸 / 指纹）
+        var status = await Windows.Security.Credentials.UI.UserConsentVerifier.RequestVerificationAsync(
+            "Folder Crypto 文件夹加密 - 解锁");
+        if (status != Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+        {
+            ShowHint("Windows Hello 验证未通过，无法解锁。");
+            return;
+        }
+
+        bool isRecovery = HelloSecretStore.IsRecoveryKind(secret.Value.Kind);
+        bool isFolder = System.IO.Directory.Exists(_targetPath);
+
+        SetBusy(true);
+        if (isFolder)
+        {
+            ShowProgress("正在解锁… 0%");
+            var progress = CreateProgress("正在解锁… {0}%");
+            await Task.Run(() =>
+            {
+                if (isRecovery) InPlaceEncryptionService.DecryptFolder(_targetPath, null, secret.Value.Secret, progress);
+                else InPlaceEncryptionService.DecryptFolder(_targetPath, secret.Value.Secret, null, progress);
+            });
+        }
+        else
+        {
+            ShowProgress("正在解锁… 0%");
+            var progress = CreateProgress("正在解锁… {0}%");
+            await Task.Run(() =>
+            {
+                if (isRecovery) InPlaceEncryptionService.DecryptFile(_targetPath, null, secret.Value.Secret, progress);
+                else InPlaceEncryptionService.DecryptFile(_targetPath, secret.Value.Secret, null, progress);
+            });
+        }
+
+        ShowDone("解锁完成", "文件/文件夹已还原。");
+    }
+
+    /// <summary>“临时解密”按钮（Windows Hello 模式）：认证后用存储密码临时解密，关闭后自动重新加密。</summary>
+    private async void OnTempUnlock(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var secret = HelloSecretStore.TryGetSecret();
+            if (secret == null)
+            {
+                ShowHint("未找到已保存的密码，请先在「设置 - 行为」中开启并保存。");
+                return;
+            }
+            if (HelloSecretStore.IsRecoveryKind(secret.Value.Kind))
+            {
+                ShowHint("当前保存的是恢复码，无法用于临时解密。请在设置中改为保存密码。");
+                return;
+            }
+
+            var status = await Windows.Security.Credentials.UI.UserConsentVerifier.RequestVerificationAsync(
+                "Folder Crypto 文件夹加密 - 临时解密");
+            if (status != Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+            {
+                ShowHint("Windows Hello 验证未通过，无法临时解密。");
+                return;
+            }
+
+            bool isFolder = System.IO.Directory.Exists(_targetPath);
+            SetBusy(true);
+            await Task.Run(() =>
+            {
+                if (isFolder) TemporaryUnlockService.TempDecryptFolder(_targetPath, secret.Value.Secret);
+                else TemporaryUnlockService.TempDecryptFile(_targetPath, secret.Value.Secret);
+            });
+
+            ShowDone("临时解密", isFolder
+                ? "已临时解锁该文件夹，使用完毕（文件夹内文件空闲）后会自动重新加密。"
+                : "已临时解密并打开文件，关闭该文件后将自动重新加密。");
+        }
+        catch (Exception ex)
+        {
+            ShowHint("临时解密失败：" + ex.Message);
+        }
     }
 
     /// <summary>把窗口内容替换为“进行中 + 进度条”视图。加密时允许取消。</summary>
@@ -453,6 +633,13 @@ public sealed partial class PromptWindow : Window
     /// <summary>根据输入内容决定“确定”按钮是否可用，并实时校验两次密码是否一致。</summary>
     private void UpdateOkEnabled()
     {
+        if (_helloMode)
+        {
+            // Windows Hello 模式：不依赖密码输入，始终可点
+            OkButton.IsEnabled = true;
+            return;
+        }
+
         if (_encryptMode)
         {
             string pwd = PasswordBox.Password;

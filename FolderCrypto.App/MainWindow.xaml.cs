@@ -22,6 +22,9 @@ public sealed partial class MainWindow : Window
     /// <summary>初始化阶段抑制「显示托盘图标」开关事件，避免初始化时误触发显示/隐藏。</summary>
     private bool _suppressTrayIconEvent = true;
 
+    /// <summary>初始化阶段抑制「Windows Hello 解锁」开关事件，避免初始化时误触发。</summary>
+    private bool _suppressHelloEvent = true;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -48,6 +51,12 @@ public sealed partial class MainWindow : Window
         _suppressTrayIconEvent = true;
         ShowTrayIconSwitch.IsOn = SettingsService.ShowTrayIcon;
         _suppressTrayIconEvent = false;
+
+        // Windows Hello 解锁开关：按已保存设置初始化
+        _suppressHelloEvent = true;
+        HelloSwitch.IsOn = SettingsService.WindowsHelloUnlock;
+        _suppressHelloEvent = false;
+        UpdateHelloUi();
 
         // 关于：显示当前版本号
         VersionText.Text = "v" + UpdateService.CurrentVersion;
@@ -293,6 +302,63 @@ public sealed partial class MainWindow : Window
             // 关闭后立即隐藏托盘图标
             App.HideTrayIcon();
         }
+    }
+
+    // ---------- Windows Hello 解锁 ----------
+
+    /// <summary>开/关滑动开关：开启时需先保存一份密码或恢复码作为解锁凭据。</summary>
+    private async void OnHelloToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressHelloEvent) return;
+
+        bool want = HelloSwitch.IsOn;
+        if (want)
+        {
+            // 开启前必须通过 Windows Hello 认证（PIN/人脸/指纹）
+            var status = await Windows.Security.Credentials.UI.UserConsentVerifier.RequestVerificationAsync(
+                "开启 Windows Hello 解锁");
+            if (status != Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+            {
+                // 认证失败：回滚开关并提示
+                _suppressHelloEvent = true;
+                HelloSwitch.IsOn = false;
+                _suppressHelloEvent = false;
+                UpdateHelloUi();
+                await DialogHelper.ShowInfo(this, "Windows Hello 验证未通过，无法开启。");
+                return;
+            }
+
+            // 认证通过后，要求设置一份用于替代密码的解锁密码（存入凭据管理器）
+            string? pwd = await DialogHelper.ShowSetPasswordDialogAsync(this);
+            if (string.IsNullOrEmpty(pwd))
+            {
+                // 取消：回滚开关
+                _suppressHelloEvent = true;
+                HelloSwitch.IsOn = false;
+                _suppressHelloEvent = false;
+                UpdateHelloUi();
+                return;
+            }
+            HelloSecretStore.SaveSecret("password", pwd);
+            SettingsService.WindowsHelloUnlock = true;
+            SetStatus("已开启 Windows Hello 解锁");
+        }
+        else
+        {
+            // 关闭：清除已保存的凭据
+            HelloSecretStore.ClearSecret();
+            SettingsService.WindowsHelloUnlock = false;
+            SetStatus("已关闭 Windows Hello 解锁");
+        }
+        UpdateHelloUi();
+    }
+
+    private void UpdateHelloUi()
+    {
+        if (HelloStatusText == null) return;
+        HelloStatusText.Text = SettingsService.WindowsHelloUnlock
+            ? "已开启：右键“解密”时将用 Windows Hello（PIN/人脸）代替输入密码。"
+            : "开启后，右键“解密”可用 Windows Hello（PIN/人脸）代替输入密码解锁文件/文件夹。";
     }
 
     // ---------- 软件更新 ----------

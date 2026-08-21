@@ -246,6 +246,30 @@
                                                   OffContent=""
                                                   Toggled="OnShowTrayIconToggled"/>
                                 </Grid>
+
+                                <!-- Grid 两列：Windows Hello 解锁开关 -->
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Text="使用 Windows Hello 解锁" Style="{ThemeResource BodyStrongTextBlockStyle}"/>
+                                        <TextBlock x:Name="HelloStatusText"
+                                                   Text="开启后，右键“解密”可用 Windows Hello（PIN/人脸）代替输入密码解锁文件/文件夹。"
+                                                   TextWrapping="Wrap"
+                                                   Style="{ThemeResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="HelloSwitch"
+                                                  Grid.Column="1"
+                                                  MinWidth="54"
+                                                  VerticalAlignment="Center"
+                                                  IsTabStop="False"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  Toggled="OnHelloToggled"/>
+                                </Grid>
                             </StackPanel>
                         </Border>
 

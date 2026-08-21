@@ -62,6 +62,8 @@
                 <!-- 底部按钮（紧随提示/强度下方，间距与其他元素一致） -->
                 <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
                     <Button Content="取消" Click="OnCancel" MinWidth="88"/>
+                    <Button x:Name="TempUnlockButton" Content="临时解密" Click="OnTempUnlock" MinWidth="88"
+                            Visibility="Collapsed"/>
                     <Button x:Name="OkButton" Content="确定" Click="OnOk" MinWidth="88"
                             Style="{ThemeResource AccentButtonStyle}" IsEnabled="False"/>
                 </StackPanel>
