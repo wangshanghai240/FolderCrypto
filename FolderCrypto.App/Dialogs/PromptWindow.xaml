@@ -59,12 +59,17 @@
                 <TextBlock x:Name="HintText" TextWrapping="Wrap" TextAlignment="Left" HorizontalAlignment="Left" MinHeight="18"
                            Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
 
-                <!-- 底部按钮（紧随提示/强度下方，间距与其他元素一致） -->
-                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
-                    <Button Content="取消" Click="OnCancel" MinWidth="88"/>
-                    <Button x:Name="TempUnlockButton" Content="临时解密" Click="OnTempUnlock" MinWidth="88"
-                            Visibility="Collapsed"/>
-                    <Button x:Name="OkButton" Content="确定" Click="OnOk" MinWidth="88"
+                <!-- 底部按钮：第一行 取消+临时解密（左右对齐），第二行 确定（Windows Hello 解锁） -->
+                <StackPanel Spacing="12" HorizontalAlignment="Stretch">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="取消" Click="OnCancel" MinWidth="88" HorizontalAlignment="Left"/>
+                        <Button Grid.Column="1" x:Name="TempUnlockButton" Content="临时解密" Click="OnTempUnlock" MinWidth="88" HorizontalAlignment="Right" Visibility="Collapsed"/>
+                    </Grid>
+                    <Button x:Name="OkButton" Content="确定" Click="OnOk" MinWidth="88" HorizontalAlignment="Center"
                             Style="{ThemeResource AccentButtonStyle}" IsEnabled="False"/>
                 </StackPanel>
             </StackPanel>

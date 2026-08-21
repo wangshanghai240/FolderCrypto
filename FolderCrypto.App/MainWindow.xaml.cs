@@ -345,6 +345,20 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            // 关闭前也需再次通过 Windows Hello 认证
+            var status = await Windows.Security.Credentials.UI.UserConsentVerifier.RequestVerificationAsync(
+                "关闭 Windows Hello 解锁");
+            if (status != Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified)
+            {
+                // 认证失败：回滚开关为开启状态
+                _suppressHelloEvent = true;
+                HelloSwitch.IsOn = true;
+                _suppressHelloEvent = false;
+                UpdateHelloUi();
+                await DialogHelper.ShowInfo(this, "Windows Hello 验证未通过，无法关闭。");
+                return;
+            }
+
             // 关闭：清除已保存的凭据
             HelloSecretStore.ClearSecret();
             SettingsService.WindowsHelloUnlock = false;

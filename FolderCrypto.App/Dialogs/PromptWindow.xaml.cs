@@ -386,10 +386,14 @@ public sealed partial class PromptWindow : Window
 
             bool isFolder = System.IO.Directory.Exists(_targetPath);
             SetBusy(true);
+
+            // 临时解密也显示进度
+            ShowProgress("正在临时解密… 0%");
+            var progress = CreateProgress("正在临时解密… {0}%");
             await Task.Run(() =>
             {
-                if (isFolder) TemporaryUnlockService.TempDecryptFolder(_targetPath, secret.Value.Secret);
-                else TemporaryUnlockService.TempDecryptFile(_targetPath, secret.Value.Secret);
+                if (isFolder) TemporaryUnlockService.TempDecryptFolder(_targetPath, secret.Value.Secret, progress);
+                else TemporaryUnlockService.TempDecryptFile(_targetPath, secret.Value.Secret, progress);
             });
 
             ShowDone("临时解密", isFolder

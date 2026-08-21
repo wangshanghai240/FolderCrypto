@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using FolderCrypto.Core.Services;
@@ -26,18 +28,18 @@ public static class TemporaryUnlockService
         "FolderCrypto", "temp-unlock.json");
 
     /// <summary>临时解密一个文件并打开；监测到文件不再被占用后自动重新加密。</summary>
-    public static void TempDecryptFile(string path, string password)
+    public static void TempDecryptFile(string path, string password, IProgress<int>? progress = null)
     {
-        InPlaceEncryptionService.DecryptFile(path, password);
+        InPlaceEncryptionService.DecryptFile(path, password, null, progress);
         AddManifest(path);
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); } catch { }
         _ = MonitorFileAsync(path, password, DateTime.UtcNow);
     }
 
     /// <summary>临时解密一个文件夹（解密 + 解除锁定），待文件夹内文件空闲后自动重新加密。</summary>
-    public static void TempDecryptFolder(string path, string password)
+    public static void TempDecryptFolder(string path, string password, IProgress<int>? progress = null)
     {
-        InPlaceEncryptionService.DecryptFolder(path, password);
+        InPlaceEncryptionService.DecryptFolder(path, password, null, progress);
         AddManifest(path);
         _ = MonitorFolderAsync(path, password, DateTime.UtcNow);
     }
@@ -118,14 +120,71 @@ public static class TemporaryUnlockService
         catch { return false; }
     }
 
-    /// <summary>用独占打开探测文件是否仍被其它进程占用。</summary>
+    /// <summary>
+    /// 用 Restart Manager 判断文件是否仍被任何进程占用。
+    /// 相比独占打开探测更可靠：媒体播放器等常以 FileShare.ReadWrite 打开文件，
+    /// 独占探测会误判为空闲，导致播放中就被重新加密。
+    /// </summary>
     private static bool IsFileInUse(string path)
     {
-        try { using var fs = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.None); return false; }
-        catch (IOException) { return true; }
-        catch (UnauthorizedAccessException) { return false; }
-        catch { return true; }
+        uint session = 0;
+        var key = new StringBuilder(64);
+        try
+        {
+            if (RmStartSession(out session, 0, key) != 0) return true; // 失败时保守视为占用
+            string[] files = { path };
+            if (RmRegisterResources(session, 1, files, 0, IntPtr.Zero, 0, IntPtr.Zero) != 0) return true;
+
+            uint needed = 0, count = 0, reasons = 0;
+            int r = RmGetList(session, out needed, ref count, null, out reasons);
+            if (r == 234) // ERROR_MORE_DATA: 有进程占用，缓冲区不足
+            {
+                var info = new RM_PROCESS_INFO[needed];
+                count = needed;
+                r = RmGetList(session, out needed, ref count, info, out reasons);
+                return r == 0 && count > 0;
+            }
+            // r == 0 且 count == 0 → 无进程占用
+            return r == 0 && count > 0;
+        }
+        catch { return true; } // 保守：异常视为仍被占用
+        finally { if (session != 0) RmEndSession(session); }
     }
+
+    #region Restart Manager 互操作 (rstrtmgr.dll)
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    private static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, StringBuilder strSessionKey);
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    private static extern int RmRegisterResources(uint dwSessionHandle, uint nFiles, string[] rgsFilenames, uint nApplications, IntPtr rgApplications, uint nServices, IntPtr rgsServiceNames);
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    private static extern int RmGetList(uint dwSessionHandle, out uint pnProcInfoNeeded, ref uint pnProcInfo, [In, Out] RM_PROCESS_INFO[]? rgAffectedApps, out uint lpdwRebootReasons);
+
+    [DllImport("rstrtmgr.dll")]
+    private static extern int RmEndSession(uint dwSessionHandle);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct RM_PROCESS_INFO
+    {
+        public RM_UNIQUE_PROCESS Process;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string strAppName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string strServiceShortName;
+        public int ApplicationType;
+        public uint AppStatus;
+        public uint TSSessionId;
+        [MarshalAs(UnmanagedType.Bool)] public bool bRestartable;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RM_UNIQUE_PROCESS
+    {
+        public int dwProcessId;
+        public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+    }
+
+    #endregion
 
     private static bool AnyFileInUse(string folder)
     {
