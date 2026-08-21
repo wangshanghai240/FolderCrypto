@@ -60,7 +60,7 @@
                            Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
 
                 <!-- 底部按钮：第一行 取消+临时解密（左右对齐），第二行 确定（Windows Hello 解锁） -->
-                <Grid HorizontalAlignment="Center">
+                <Grid HorizontalAlignment="Center" ColumnSpacing="16" RowSpacing="16">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -70,7 +70,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <Button x:Name="CancelButton" Grid.Row="0" Grid.Column="0" Content="取消" Click="OnCancel" MinWidth="88"/>
-                    <Button x:Name="TempUnlockButton" Grid.Row="0" Grid.Column="1" Content="临时解密" Click="OnTempUnlock" MinWidth="88" Margin="8,0,0,0" Visibility="Collapsed"/>
+                    <Button x:Name="TempUnlockButton" Grid.Row="0" Grid.Column="1" Content="临时解密" Click="OnTempUnlock" MinWidth="88" Visibility="Collapsed"/>
                     <Button x:Name="OkButton" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Content="确定" Click="OnOk" MinWidth="88"
                             Style="{ThemeResource AccentButtonStyle}" IsEnabled="False" HorizontalAlignment="Center"/>
                 </Grid>
