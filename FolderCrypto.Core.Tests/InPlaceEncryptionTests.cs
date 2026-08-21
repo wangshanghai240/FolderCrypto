@@ -301,6 +301,54 @@ public class InPlaceEncryptionTests : IDisposable
     }
 
     [Fact]
+    public async Task Folder_Encrypt_CancellationRollsBackOnlyFilesEncryptedThisRun()
+    {
+        string dir = Path.Combine(_dir, "cancel_enc");
+        Directory.CreateDirectory(dir);
+
+        // 预先存在一个“本次操作之前已加密”的文件（用别的密码加密），取消回滚时它应保持不变
+        string preFile = Path.Combine(dir, "pre.bin");
+        File.WriteAllBytes(preFile, new byte[4096]);
+        InPlaceEncryptionService.EncryptFile(preFile, "OtherPass123!");
+
+        // 多文件且每个略大于分块(4MB)，确保取消发生在“部分文件已加密、尚未全部完成”时
+        for (int i = 0; i < 6; i++)
+            File.WriteAllBytes(Path.Combine(dir, $"f{i}.bin"), new byte[8 * 1024 * 1024]);
+
+        var cts = new CancellationTokenSource();
+        var progress = new CollectProgress();
+        var task = Task.Run(() => InPlaceEncryptionService.EncryptFolder(dir, ValidPassword, progress, cts.Token));
+
+        // 等待“本次”至少加密了一个新文件（加密文件数 > 预加密的 1 个）后再请求取消
+        bool sawNewEncrypted = false;
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!task.IsCompleted && DateTime.UtcNow < deadline)
+        {
+            if (Directory.GetFiles(dir).Count(InPlaceEncryptionService.IsFileEncrypted) > 1)
+            {
+                sawNewEncrypted = true;
+                break;
+            }
+            await Task.Delay(10);
+        }
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
+        Assert.True(sawNewEncrypted, "应在取消前观察到本次至少加密了一个新文件");
+
+        // 回滚后：本次加密的文件应恢复为未加密；本次之前已加密的 pre.bin 应保持加密
+        foreach (var f in Directory.GetFiles(dir))
+        {
+            if (f == preFile)
+            {
+                Assert.True(InPlaceEncryptionService.IsFileEncrypted(f), $"预加密文件被错误回滚：{f}");
+                continue;
+            }
+            Assert.False(InPlaceEncryptionService.IsFileEncrypted(f), $"本次加密的文件未回滚：{f}");
+        }
+    }
+
+    [Fact]
     public void Folder_Decrypt_ReportsProgress()
     {
         string dir = Path.Combine(_dir, "prog_dec");

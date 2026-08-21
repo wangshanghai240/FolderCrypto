@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using FolderCrypto.Core.Security;
 using FolderCrypto.Core.Services;
@@ -20,6 +21,7 @@ public sealed partial class PromptWindow : Window
     private int _wrongCount;
     private ProgressBar? _progressBar;
     private TextBlock? _progressText;
+    private CancellationTokenSource? _encryptCts;
 
     private PromptWindow(string targetPath, bool encryptMode)
     {
@@ -124,19 +126,31 @@ public sealed partial class PromptWindow : Window
         string recovery = "";
         bool isFolder = System.IO.Directory.Exists(_targetPath);
 
-        if (isFolder)
+        _encryptCts = new CancellationTokenSource();
+        try
         {
-            // 文件夹：递归加密所有文件，展示实时进度
-            ShowProgress("正在加密… 0%");
-            var progress = CreateProgress("正在加密… {0}%");
-            await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFolder(_targetPath, pwd, progress));
+            if (isFolder)
+            {
+                // 文件夹：递归加密所有文件，展示实时进度，允许取消
+                ShowProgress("正在加密… 0%", allowCancel: true);
+                var progress = CreateProgress("正在加密… {0}%");
+                var ct = _encryptCts.Token;
+                await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFolder(_targetPath, pwd, progress, ct), ct);
+            }
+            else
+            {
+                // 文件：展示实时进度，允许取消
+                ShowProgress("正在加密… 0%", allowCancel: true);
+                var progress = CreateProgress("正在加密… {0}%");
+                var ct = _encryptCts.Token;
+                await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFile(_targetPath, pwd, progress, ct), ct);
+            }
         }
-        else
+        catch (OperationCanceledException)
         {
-            // 文件：展示实时进度
-            ShowProgress("正在加密… 0%");
-            var progress = CreateProgress("正在加密… {0}%");
-            await Task.Run(() => recovery = InPlaceEncryptionService.EncryptFile(_targetPath, pwd, progress));
+            // 用户点击取消：核心服务已自动解密还原已加密的内容
+            ShowDone("已取消加密", isFolder ? "已自动还原本次已加密的文件/文件夹。" : "已取消加密，文件保持原状。");
+            return;
         }
 
         ShowRecovery(recovery);
@@ -208,8 +222,8 @@ public sealed partial class PromptWindow : Window
         ShowDone("解密完成", "文件/文件夹已还原。");
     }
 
-    /// <summary>把窗口内容替换为“进行中 + 进度条”视图。</summary>
-    private void ShowProgress(string status)
+    /// <summary>把窗口内容替换为“进行中 + 进度条”视图。加密时允许取消。</summary>
+    private void ShowProgress(string status, bool allowCancel = false)
     {
         _progressText = new TextBlock
         {
@@ -230,8 +244,32 @@ public sealed partial class PromptWindow : Window
         stack.Children.Add(new FontIcon { Glyph = "\uE72E", FontSize = 28, HorizontalAlignment = HorizontalAlignment.Center, Foreground = (Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"] });
         stack.Children.Add(_progressText);
         stack.Children.Add(_progressBar);
-        stack.Children.Add(new TextBlock { Text = "请稍候…", HorizontalTextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
+
+        if (allowCancel)
+        {
+            // 取消按钮：点击后自动解密已加密的内容
+            var cancel = new Button
+            {
+                Content = "取消加密",
+                HorizontalAlignment = HorizontalAlignment.Center,
+                MinWidth = 120
+            };
+            cancel.Click += OnCancelEncrypt;
+            stack.Children.Add(cancel);
+        }
+        else
+        {
+            stack.Children.Add(new TextBlock { Text = "请稍候…", HorizontalTextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
+        }
+
         ShowResult(stack);
+    }
+
+    /// <summary>点击“取消加密”：请求取消，核心服务会自动解密已加密的内容。</summary>
+    private void OnCancelEncrypt(object sender, RoutedEventArgs e)
+    {
+        _encryptCts?.Cancel();
+        if (sender is Button b) b.IsEnabled = false;
     }
 
     /// <summary>把内容显示到窗口中，并保留顶部 Mica 标题栏拖拽区域与自适应大小。</summary>

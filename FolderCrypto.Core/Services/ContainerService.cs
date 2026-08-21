@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using FolderCrypto.Core.Encryption;
 using FolderCrypto.Core.Model;
 using FolderCrypto.Core.Security;
@@ -360,7 +361,7 @@ public sealed class ContainerService
         #region 文件
 
         /// <summary>对文件进行原地加密（覆盖源文件）。返回恢复码（需展示给用户保存）。</summary>
-        public static string EncryptFile(string filePath, string password, IProgress<int>? progress = null)
+        public static string EncryptFile(string filePath, string password, IProgress<int>? progress = null, CancellationToken cancellationToken = default)
         {
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("文件不存在。", filePath);
@@ -368,12 +369,12 @@ public sealed class ContainerService
                 throw new InvalidOperationException("该文件已加密。");
 
             string recoveryCode = GenerateRecoveryCode();
-            EncryptFileWithRecovery(filePath, password, recoveryCode, progress);
+            EncryptFileWithRecovery(filePath, password, recoveryCode, progress, cancellationToken);
             return recoveryCode;
         }
 
         /// <summary>用指定恢复码流式加密文件（ver=3 分块，内存有界）。文件夹递归加密时所有文件共用同一恢复码。</summary>
-        private static void EncryptFileWithRecovery(string filePath, string password, string recoveryCode, IProgress<int>? fileProgress = null)
+        private static void EncryptFileWithRecovery(string filePath, string password, string recoveryCode, IProgress<int>? fileProgress = null, CancellationToken cancellationToken = default)
         {
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("文件不存在。", filePath);
@@ -404,34 +405,45 @@ public sealed class ContainerService
             string tmp = filePath + ".tmp";
             long total = new FileInfo(filePath).Length;
             fileProgress?.Report(0);
-            using (var src = File.OpenRead(filePath))
-            using (var dst = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+            try
             {
-                dst.Write(head, 0, head.Length);
-                dst.Write(wrapPwd, 0, wrapPwd.Length);
-                dst.Write(wrapRec, 0, wrapRec.Length);
-
-                var chunk = new byte[ChunkSize];
-                long done = 0;
-                using var aes = new AesGcm(dataKey, TagSize);
-                int n;
-                while ((n = src.Read(chunk, 0, chunk.Length)) > 0)
+                using (var src = File.OpenRead(filePath))
+                using (var dst = new FileStream(tmp, FileMode.Create, FileAccess.Write))
                 {
-                    var nonce = System.Security.Cryptography.RandomNumberGenerator.GetBytes(NonceSize);
-                    var ciphertext = new byte[n];
-                    var tag = new byte[TagSize];
-                    aes.Encrypt(nonce, chunk.AsSpan(0, n), ciphertext, tag);
+                    dst.Write(head, 0, head.Length);
+                    dst.Write(wrapPwd, 0, wrapPwd.Length);
+                    dst.Write(wrapRec, 0, wrapRec.Length);
 
-                    dst.Write(BitConverter.GetBytes(n), 0, 4);
-                    dst.Write(nonce, 0, nonce.Length);
-                    dst.Write(ciphertext, 0, n);
-                    dst.Write(tag, 0, tag.Length);
+                    var chunk = new byte[ChunkSize];
+                    long done = 0;
+                    using var aes = new AesGcm(dataKey, TagSize);
+                    int n;
+                    while ((n = src.Read(chunk, 0, chunk.Length)) > 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
 
-                    Array.Clear(chunk, 0, n);   // 清零明文块
-                    done += n;
-                    if (fileProgress != null && total > 0)
-                        fileProgress.Report((int)(done * 100 / total));
+                        var nonce = System.Security.Cryptography.RandomNumberGenerator.GetBytes(NonceSize);
+                        var ciphertext = new byte[n];
+                        var tag = new byte[TagSize];
+                        aes.Encrypt(nonce, chunk.AsSpan(0, n), ciphertext, tag);
+
+                        dst.Write(BitConverter.GetBytes(n), 0, 4);
+                        dst.Write(nonce, 0, nonce.Length);
+                        dst.Write(ciphertext, 0, n);
+                        dst.Write(tag, 0, tag.Length);
+
+                        Array.Clear(chunk, 0, n);   // 清零明文块
+                        done += n;
+                        if (fileProgress != null && total > 0)
+                            fileProgress.Report((int)(done * 100 / total));
+                    }
                 }
+            }
+            catch
+            {
+                // 取消或出错：清理临时文件，原始文件保持未加密状态
+                try { File.Delete(tmp); } catch { }
+                throw;
             }
 
             File.Delete(filePath);
@@ -593,7 +605,7 @@ public sealed class ContainerService
         /// 加密后内容真正加密（正在被其他程序占用的文件会提示关闭后重试），
         /// 并禁止浏览/进入、禁止拖入未加密内容。
         /// </summary>
-        public static string EncryptFolder(string folderPath, string password, IProgress<int>? progress = null)
+        public static string EncryptFolder(string folderPath, string password, IProgress<int>? progress = null, CancellationToken cancellationToken = default)
         {
             if (!Directory.Exists(folderPath))
                 throw new DirectoryNotFoundException("文件夹不存在。");
@@ -604,7 +616,18 @@ public sealed class ContainerService
             string normalizedRec = NormalizeRecoveryCode(recoveryCode);
 
             // 递归加密文件夹内所有文件（真正的内容加密）
-            EncryptFilesRecursive(folderPath, password, normalizedRec, progress);
+            var encrypted = new List<string>();
+            try
+            {
+                EncryptFilesRecursive(folderPath, password, normalizedRec, progress, cancellationToken, encrypted);
+            }
+            catch (OperationCanceledException)
+            {
+                // 用户取消：只自动解密还原“本次加密”的文件，恢复为未加密状态；
+                // 本次操作之前已加密（用其它密码/恢复码加密）的文件保持不变。
+                RollbackEncryptedFiles(encrypted, password, normalizedRec, progress);
+                throw;
+            }
 
             // 放置隐藏标记（含密码/恢复码验证）
             string markerPath = Path.Combine(folderPath, FolderLockFileName);
@@ -690,12 +713,14 @@ public sealed class ContainerService
         }
 
         /// <summary>递归加密文件夹内所有文件（跳过已加密与标记文件），并把每个文件的内部进度映射到文件夹整体进度。</summary>
-        private static void EncryptFilesRecursive(string folderPath, string password, string recoveryCode, IProgress<int>? progress)
+        private static void EncryptFilesRecursive(string folderPath, string password, string recoveryCode, IProgress<int>? progress, CancellationToken cancellationToken, List<string> encrypted)
         {
             string[] files = EnumerateFiles(folderPath);
 
             for (int i = 0; i < files.Length; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 string f = files[i];
                 if (Path.GetFileName(f) == FolderLockFileName) continue;
                 if (IsFileEncrypted(f)) continue;
@@ -706,13 +731,17 @@ public sealed class ContainerService
                     {
                         // 把当前文件的内部进度(0-100)映射到文件夹整体进度，避免第一个大文件期间一直 0%
                         EncryptFileWithRecovery(f, password, recoveryCode,
-                            new FolderProgress(progress, i, files.Length));
+                            new FolderProgress(progress, i, files.Length), cancellationToken);
                     }
                     else
                     {
-                        EncryptFileWithRecovery(f, password, recoveryCode);
+                        EncryptFileWithRecovery(f, password, recoveryCode, cancellationToken: cancellationToken);
                     }
+
+                    // 该文件加密成功，加入待回滚清单（取消时用于自动解密还原）
+                    encrypted.Add(f);
                 }
+                catch (OperationCanceledException) { throw; }
                 catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && ex is not FileNotFoundException)
                 {
                     throw new IOException($"加密失败：文件正被其他程序占用或无法访问：{f}\n请关闭正在使用的文件后重试。", ex);
@@ -752,6 +781,39 @@ public sealed class ContainerService
             }
 
             // 保证结束时进度到达 100%
+            progress?.Report(100);
+        }
+
+        /// <summary>
+        /// 取消加密时回滚：只自动解密“本次加密”的文件，恢复为未加密状态。
+        /// 通过校验每个文件是否以“本次的恢复码”加密来精确定位，确保本次操作之前
+        /// 已经加密（使用其它密码/恢复码）的文件保持不变。
+        /// </summary>
+        private static void RollbackEncryptedFiles(List<string> encrypted, string password, string normalizedRecoveryCode, IProgress<int>? progress)
+        {
+            if (encrypted == null || encrypted.Count == 0) return;
+
+            // 反向解密（后加密的先还原）；单个文件失败不阻断整体回滚
+            for (int i = encrypted.Count - 1; i >= 0; i--)
+            {
+                string f = encrypted[i];
+                try
+                {
+                    // 只回滚“本次加密”的文件：跳过非加密文件，以及未以本次恢复码加密的文件
+                    if (!IsFileEncrypted(f)) continue;
+                    if (!string.IsNullOrEmpty(normalizedRecoveryCode) &&
+                        !VerifyFilePassword(f, normalizedRecoveryCode, isRecovery: true)) continue;
+
+                    if (progress != null)
+                        DecryptFile(f, password, null, new FolderProgress(progress, i, encrypted.Count));
+                    else
+                        DecryptFile(f, password);
+                }
+                catch
+                {
+                    // 尽力回滚，忽略单个文件失败
+                }
+            }
             progress?.Report(100);
         }
 

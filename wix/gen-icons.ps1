@@ -1,10 +1,9 @@
 ﻿# ===========================================================================
 #  FolderCrypto - Regenerate context-menu / overlay icons for dark mode.
 #
-#  Problem:  the old overlay-lock.ico (dark gray) and unlock.ico (pure black)
-#            are nearly invisible on dark Explorer context menus.
-#  Fix:      re-render the padlock glyphs (Segoe MDL2 Assets) as WHITE fill +
-#            dark outline, so they are visible on BOTH dark and light menus.
+#  Purpose:  regenerate the Explorer context-menu / overlay icons:
+#            red lock (overlay-lock.ico) and green unlock (unlock.ico),
+#            produced by the Pillow scripts in the repo root.
 #
 #  Outputs (multi-size 16/24/32/48/64/128/256, 32bpp ARGB):
 #    FolderCrypto.ShellNative\overlay-lock.ico      (source, vcxproj copies to OutDir)
@@ -166,36 +165,26 @@ public static class GlyphIcon
 }
 '@
 
-# Compile the icon generator, explicitly referencing System.Drawing.
-Add-Type -TypeDefinition $iconCs -ReferencedAssemblies @(
-    [System.Drawing.Graphics].Assembly.Location
-)
+# 使用 Python + Pillow 生成红色锁（overlay-lock.ico）与绿色解锁（unlock.ico），
+# 并分发到所有目标位置（ShellNative 源码、x64\Release 输出、packages）。
+$python = 'C:/Users/tom/AppData/Local/Python/bin/python.exe'
+if (-not (Test-Path $python)) { $python = (Get-Command python -ErrorAction SilentlyContinue).Source }
+if (-not $python) { throw '未找到 Python，无法生成图标。请安装 Python 与 Pillow。' }
 
-$sizes = @(16, 24, 32, 48, 64, 128, 256)
-$white = [System.Drawing.Color]::White
-$outline = [System.Drawing.Color]::FromArgb(255, 40, 40, 40)   # dark slate outline
+Write-Host '==> regenerating red lock / green unlock icons (Python + Pillow) ...'
+& $python (Join-Path $root 'gen_red_lock_icon.py')   | Out-Null
+& $python (Join-Path $root 'gen_green_unlock_icon.py') | Out-Null
 
-# Locked padlock (encrypt / overlay) - E72E
-$lockGlyph = ([char]0xE72E).ToString()
-$lockTargets = @(
-    'FolderCrypto.ShellNative\overlay-lock.ico',
+$lockSrc   = Join-Path $root 'FolderCrypto.ShellNative\overlay-lock.ico'
+$unlockSrc = Join-Path $root 'FolderCrypto.ShellNative\unlock.ico'
+
+foreach ($t in @(
     'FolderCrypto.ShellNative\x64\Release\overlay-lock.ico',
-    'packages\overlay-lock.ico'
-)
-foreach ($t in $lockTargets) {
-    [GlyphIcon]::SaveIco((Join-Path $root $t), $lockGlyph, $sizes, $white, $outline, 0.07)
+    'packages\overlay-lock.ico')) {
+    Copy-Item $lockSrc (Join-Path $root $t) -Force
     Write-Host "  lock  -> $t"
 }
+Copy-Item $unlockSrc (Join-Path $root 'packages\unlock.ico') -Force
+Write-Host '  unlock-> packages\unlock.ico'
 
-# Unlocked padlock (decrypt) - E785
-$unlockGlyph = ([char]0xE785).ToString()
-$unlockTargets = @(
-    'FolderCrypto.ShellNative\unlock.ico',
-    'packages\unlock.ico'
-)
-foreach ($t in $unlockTargets) {
-    [GlyphIcon]::SaveIco((Join-Path $root $t), $unlockGlyph, $sizes, $white, $outline, 0.07)
-    Write-Host "  unlock-> $t"
-}
-
-Write-Host "DONE: dark-mode icons regenerated."
+Write-Host 'DONE: red/green icons regenerated.'
