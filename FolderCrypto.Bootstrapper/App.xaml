@@ -34,10 +34,7 @@
                                 </Grid>
                             </Border>
                             <ControlTemplate.Triggers>
-                                <!-- 悬停不再叠加背景色；仅保留按下与禁用状态 -->
-                                <Trigger Property="IsPressed" Value="True">
-                                    <Setter TargetName="overlay" Property="Background" Value="{DynamicResource ButtonPressedOverlay}" />
-                                </Trigger>
+                                <!-- 悬停/按下均不再叠加背景色；仅保留禁用状态 -->
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter Property="Opacity" Value="0.5" />
                                 </Trigger>

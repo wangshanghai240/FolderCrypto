@@ -112,6 +112,31 @@ public sealed partial class PromptWindow : Window
                 ModeSwitch.Visibility = Visibility.Visible;
             }
         }
+
+        ArrangeButtons();
+    }
+
+    /// <summary>按模式安排底部按钮布局：非 Hello 模式 取消+确定 同一行；Hello 解密 取消+临时解密 一行、Windows Hello 解锁 下一行。</summary>
+    private void ArrangeButtons()
+    {
+        if (_helloMode && !_encryptMode)
+        {
+            // Hello 解密：第一行 取消+临时解密，第二行 Windows Hello 解锁（横跨两列居中）
+            TempUnlockButton.Visibility = Visibility.Visible;
+            Grid.SetRow(CancelButton, 0); Grid.SetColumn(CancelButton, 0);
+            Grid.SetRow(TempUnlockButton, 0); Grid.SetColumn(TempUnlockButton, 1);
+            Grid.SetRow(OkButton, 1); Grid.SetColumn(OkButton, 0); Grid.SetColumnSpan(OkButton, 2);
+            OkButton.HorizontalAlignment = HorizontalAlignment.Center;
+        }
+        else
+        {
+            // 其它模式（非 Hello 或 Hello 加密）：取消 + 确定 同一行，临时解密隐藏
+            TempUnlockButton.Visibility = Visibility.Collapsed;
+            Grid.SetRow(CancelButton, 0); Grid.SetColumn(CancelButton, 0);
+            Grid.SetRow(TempUnlockButton, 0); Grid.SetColumn(TempUnlockButton, 1);
+            Grid.SetRow(OkButton, 0); Grid.SetColumn(OkButton, 1); Grid.SetColumnSpan(OkButton, 1);
+            OkButton.HorizontalAlignment = HorizontalAlignment.Center;
+        }
     }
 
     /// <summary>回车触发“确定”，ESC 触发“取消”。</summary>

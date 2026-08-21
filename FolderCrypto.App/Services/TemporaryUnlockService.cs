@@ -18,7 +18,7 @@ namespace FolderCrypto.App.Services;
 public static class TemporaryUnlockService
 {
     // 占用程序关闭后再多等几秒确认空闲，避免误触发
-    private static readonly TimeSpan GracePeriod = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan GracePeriod = TimeSpan.FromSeconds(10);
     // 超时兜底：无论是否空闲，超过该时长就尝试强制重新加密
     private static readonly TimeSpan MaxTtl = TimeSpan.FromMinutes(30);
     private const int PollMs = 1500;
@@ -142,10 +142,10 @@ public static class TemporaryUnlockService
                 var info = new RM_PROCESS_INFO[needed];
                 count = needed;
                 r = RmGetList(session, out needed, ref count, info, out reasons);
-                return r == 0 && count > 0;
             }
-            // r == 0 且 count == 0 → 无进程占用
-            return r == 0 && count > 0;
+            // 只有明确返回 0 且无任何进程时才视为空闲；其余（错误/占用）一律视为仍被占用，
+            // 避免播放器等正在使用（甚至 Restart Manager 报错）时被误判为空闲而提前重新加密。
+            return !(r == 0 && count == 0);
         }
         catch { return true; } // 保守：异常视为仍被占用
         finally { if (session != 0) RmEndSession(session); }
@@ -193,7 +193,7 @@ public static class TemporaryUnlockService
             foreach (var f in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
                 if (IsFileInUse(f)) return true;
         }
-        catch { return false; }
+        catch { return true; } // 保守：枚举失败视为仍被占用
         return false;
     }
 
