@@ -18,16 +18,18 @@ namespace FolderCrypto.App.Services;
 /// </summary>
 public static class TemporaryUnlockService
 {
-    // 文件：占用程序关闭后再多等一会确认空闲，避免误触发
+    // 文件：占用程序关闭后再多等一会确认空闲，避免误触发（编辑器等会持有句柄，检测可靠）
     private static readonly TimeSpan FileGracePeriod = TimeSpan.FromSeconds(30);
-    // 文件夹：可能含音视频等正在播放的内容（部分播放器不保持文件句柄），空闲确认窗口更长，
-    // 避免正在播放时被提前重新加密
-    private static readonly TimeSpan FolderGracePeriod = TimeSpan.FromMinutes(10);
-    // 超时兜底：无论是否空闲，超过该时长就尝试强制重新加密
+    // 文件夹：可能含音视频等正在播放的内容，空闲确认窗口设几分钟；只要检测到“本会话新启动的进程”
+    // （如播放器，含 Restart Manager 检测不到的商店/UWP 播放器）仍存活，就会一直保持解锁
+    private static readonly TimeSpan FolderGracePeriod = TimeSpan.FromMinutes(2);
+    // 超时兜底：仅当未被占用且超时时才强制重新加密（绝不中断正在播放的内容）
     private static readonly TimeSpan MaxTtl = TimeSpan.FromMinutes(30);
     private const int PollMs = 1500;
     // 连续观察到某个进程占用 ≥3 次(约4.5秒) 才将其纳入跟踪，过滤掉杀毒/缩略图等瞬时访问
     private const int TrackThreshold = 3;
+    // 每几轮枚举一次新启动的进程（约每 6 秒），捕获播放器等新进程
+    private const int ProcessScanEveryN = 4;
 
     private static readonly string ManifestPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -36,10 +38,13 @@ public static class TemporaryUnlockService
     /// <summary>临时解密一个文件并打开；监测到文件不再被占用后自动重新加密。</summary>
     public static void TempDecryptFile(string path, string password, IProgress<int>? progress = null)
     {
+        var before = SnapshotPids();
         InPlaceEncryptionService.DecryptFile(path, password, null, progress);
         AddManifest(path);
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); } catch { }
-        _ = MonitorFileAsync(path, password, DateTime.UtcNow);
+        // 捕获刚启动的播放器/编辑器进程，纳入跟踪：只要它存活就保持解锁
+        var launched = GetNewPids(before, 2000);
+        _ = MonitorFileAsync(path, password, DateTime.UtcNow, launched);
     }
 
     /// <summary>临时解密一个文件夹（解密 + 解除锁定），待文件夹内文件空闲后自动重新加密。</summary>
@@ -52,10 +57,10 @@ public static class TemporaryUnlockService
 
     // ---- 监测 ----
 
-    private static async Task MonitorFileAsync(string path, string password, DateTime started)
+    private static async Task MonitorFileAsync(string path, string password, DateTime started, IEnumerable<int> initialTracked)
     {
         var counts = new Dictionary<int, int>();
-        var tracked = new HashSet<int>();
+        var tracked = new HashSet<int>(initialTracked);
         bool wasIdle = false;
         DateTime idleSince = default;
         while (true)
@@ -92,6 +97,7 @@ public static class TemporaryUnlockService
         var tracked = new HashSet<int>();
         bool wasIdle = false;
         DateTime idleSince = default;
+        int scanTick = 0;
         while (true)
         {
             await Task.Delay(PollMs);
@@ -101,6 +107,11 @@ public static class TemporaryUnlockService
             string[] files;
             try { files = Directory.GetFiles(path, "*", SearchOption.AllDirectories); }
             catch { continue; } // 枚举失败：保持解锁，下一轮再试
+
+            // 定期捕获“本会话期间新启动的进程”（如商店媒体播放器，Restart Manager 检测不到），
+            // 只要这些进程还存活就保持解锁，绝不中断正在播放的内容
+            if (++scanTick % ProcessScanEveryN == 0)
+                CaptureSessionProcesses(started, tracked);
 
             bool inUse = ComputeInUse(files, counts, tracked);
             if (inUse)
@@ -237,6 +248,42 @@ public static class TemporaryUnlockService
     {
         try { using var p = Process.GetProcessById(pid); return true; }
         catch { return false; }
+    }
+
+    /// <summary>当前所有进程 PID 快照（用于对比启动前后）。</summary>
+    private static HashSet<int> SnapshotPids()
+    {
+        var set = new HashSet<int>();
+        try { foreach (var p in Process.GetProcesses()) set.Add(p.Id); } catch { }
+        return set;
+    }
+
+    /// <summary>等待 waitMs 后，返回相对快照新增的进程 PID（捕获刚启动的播放器/编辑器）。</summary>
+    private static HashSet<int> GetNewPids(HashSet<int> before, int waitMs)
+    {
+        var result = new HashSet<int>();
+        try
+        {
+            System.Threading.Thread.Sleep(waitMs);
+            foreach (var p in Process.GetProcesses())
+                if (!before.Contains(p.Id)) result.Add(p.Id);
+        }
+        catch { }
+        return result;
+    }
+
+    /// <summary>把“会话开始之后启动”的进程加入跟踪集合（含商店/UWP 播放器等）。</summary>
+    private static void CaptureSessionProcesses(DateTime sessionStartUtc, HashSet<int> tracked)
+    {
+        try
+        {
+            foreach (var p in Process.GetProcesses())
+            {
+                try { if (p.StartTime.ToUniversalTime() >= sessionStartUtc) tracked.Add(p.Id); }
+                catch { } // 部分进程无法读取启动时间（权限），忽略
+            }
+        }
+        catch { }
     }
 
     // ---- 清单：供启动兜底扫描 ----
