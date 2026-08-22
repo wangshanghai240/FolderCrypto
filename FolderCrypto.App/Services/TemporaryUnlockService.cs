@@ -26,7 +26,7 @@ public static class TemporaryUnlockService
     // 超时兜底：仅当未被占用且超时时才强制重新加密（绝不中断正在播放的内容）
     private static readonly TimeSpan MaxTtl = TimeSpan.FromMinutes(30);
     private const int PollMs = 1500;
-    // 每几轮枚举一次新启动的“带窗口”进程（约每 6 秒），捕获播放器等
+    // 每几轮枚举一次新启动的“用户应用”进程（约每 6 秒），捕获播放器等
     private const int ProcessScanEveryN = 4;
 
     private static readonly string ManifestPath = Path.Combine(
@@ -104,8 +104,8 @@ public static class TemporaryUnlockService
             try { files = Directory.GetFiles(path, "*", SearchOption.AllDirectories); }
             catch { continue; } // 枚举失败：保持解锁，下一轮再试
 
-            // 定期捕获“本会话期间新打开的、带可见窗口的程序”（如播放器），只要它还存活就保持解锁，
-            // 绝不中断正在播放的内容；但不把后台/系统进程算作占用，避免永不自动重加密
+            // 定期捕获“本会话期间启动的用户应用进程”（如商店媒体播放器，Restart Manager 检测不到），
+            // 只要这些用户应用还存活就保持解锁；但排除系统后台进程，避免永不自动重加密
             if (++scanTick % ProcessScanEveryN == 0)
                 CaptureSessionProcesses(started, tracked);
 
@@ -213,17 +213,16 @@ public static class TemporaryUnlockService
     #endregion
 
     /// <summary>
-    /// 聚合判断一组文件当前是否“在使用中”：只要仍有进程持有句柄（Restart Manager），
-    /// 或本会话打开的带窗口程序（tracked，如播放器）仍存活，就视为使用中。
-    /// 不把后台/系统进程计入，从而在没有任何程序运行时能正常自动重新加密。
+    /// 聚合判断一组文件当前是否“在使用中”：只要 Restart Manager 检测到仍有进程持有句柄，
+    /// 或本会话期间启动的“用户应用”进程（tracked，如商店媒体播放器）仍存活，就视为使用中。
+    /// 排除系统后台进程，从而在没有任何用户程序运行时能正常自动重新加密。
     /// </summary>
     private static bool ComputeInUse(IEnumerable<string> files, HashSet<int> tracked)
     {
         foreach (var f in files)
         {
             var pids = GetUsingPids(f);
-            if (pids == null) return true; // RM 出错：保守视为仍被占用
-            if (pids.Count > 0) return true; // 仍有进程持有句柄
+            if (pids != null && pids.Count > 0) return true; // 仍有进程持有句柄
         }
         return tracked.Any(IsProcessAlive);
     }
@@ -256,8 +255,8 @@ public static class TemporaryUnlockService
         return result;
     }
 
-    /// <summary>把“会话开始之后启动且带可见窗口”的进程加入跟踪集合（如播放器）。
-    /// 只跟踪带窗口的程序，避免把后台/系统进程算作占用导致永不自动重加密。</summary>
+    /// <summary>把“会话开始之后启动的、属于用户应用”的进程加入跟踪集合（如商店媒体播放器）。
+    /// 排除系统后台进程（System32/服务等），避免长期存活的系统进程导致永不自动重加密。</summary>
     private static void CaptureSessionProcesses(DateTime sessionStartUtc, HashSet<int> tracked)
     {
         try
@@ -266,13 +265,27 @@ public static class TemporaryUnlockService
             {
                 try
                 {
-                    if (p.MainWindowHandle != IntPtr.Zero && p.StartTime.ToUniversalTime() >= sessionStartUtc)
-                        tracked.Add(p.Id);
+                    if (p.StartTime.ToUniversalTime() < sessionStartUtc) continue;
+                    if (IsUserApp(p)) tracked.Add(p.Id);
                 }
-                catch { } // 部分进程无法读取启动时间（权限），忽略
+                catch { }
             }
         }
         catch { }
+    }
+
+    /// <summary>判断进程是否为“用户应用”（非系统后台进程）。有可见窗口，或可执行文件不在系统目录。</summary>
+    private static bool IsUserApp(Process p)
+    {
+        try
+        {
+            if (p.MainWindowHandle != IntPtr.Zero) return true; // 有可见窗口 → 用户应用
+            string? path = p.MainModule?.FileName;
+            if (string.IsNullOrEmpty(path)) return false;
+            string sys = Environment.GetFolderPath(Environment.SpecialFolder.System); // C:\Windows\System32
+            return !path.StartsWith(sys, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; } // 无法读取模块：通常为系统/受保护进程
     }
 
     // ---- 清单：供启动兜底扫描 ----
