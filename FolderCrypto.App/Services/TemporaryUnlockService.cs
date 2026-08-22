@@ -26,9 +26,7 @@ public static class TemporaryUnlockService
     // 超时兜底：仅当未被占用且超时时才强制重新加密（绝不中断正在播放的内容）
     private static readonly TimeSpan MaxTtl = TimeSpan.FromMinutes(30);
     private const int PollMs = 1500;
-    // 连续观察到某个进程占用 ≥3 次(约4.5秒) 才将其纳入跟踪，过滤掉杀毒/缩略图等瞬时访问
-    private const int TrackThreshold = 3;
-    // 每几轮枚举一次新启动的进程（约每 6 秒），捕获播放器等新进程
+    // 每几轮枚举一次新启动的“带窗口”进程（约每 6 秒），捕获播放器等
     private const int ProcessScanEveryN = 4;
 
     private static readonly string ManifestPath = Path.Combine(
@@ -59,7 +57,6 @@ public static class TemporaryUnlockService
 
     private static async Task MonitorFileAsync(string path, string password, DateTime started, IEnumerable<int> initialTracked)
     {
-        var counts = new Dictionary<int, int>();
         var tracked = new HashSet<int>(initialTracked);
         bool wasIdle = false;
         DateTime idleSince = default;
@@ -69,7 +66,7 @@ public static class TemporaryUnlockService
             if (!File.Exists(path)) { RemoveManifest(path); return; }              // 已被删除
             if (InPlaceEncryptionService.IsFileEncrypted(path)) { RemoveManifest(path); return; } // 已重加密
 
-            bool inUse = ComputeInUse(new[] { path }, counts, tracked);
+            bool inUse = ComputeInUse(new[] { path }, tracked);
             if (inUse)
             {
                 wasIdle = false;
@@ -93,7 +90,6 @@ public static class TemporaryUnlockService
 
     private static async Task MonitorFolderAsync(string path, string password, DateTime started)
     {
-        var counts = new Dictionary<int, int>();
         var tracked = new HashSet<int>();
         bool wasIdle = false;
         DateTime idleSince = default;
@@ -108,12 +104,12 @@ public static class TemporaryUnlockService
             try { files = Directory.GetFiles(path, "*", SearchOption.AllDirectories); }
             catch { continue; } // 枚举失败：保持解锁，下一轮再试
 
-            // 定期捕获“本会话期间新启动的进程”（如商店媒体播放器，Restart Manager 检测不到），
-            // 只要这些进程还存活就保持解锁，绝不中断正在播放的内容
+            // 定期捕获“本会话期间新打开的、带可见窗口的程序”（如播放器），只要它还存活就保持解锁，
+            // 绝不中断正在播放的内容；但不把后台/系统进程算作占用，避免永不自动重加密
             if (++scanTick % ProcessScanEveryN == 0)
                 CaptureSessionProcesses(started, tracked);
 
-            bool inUse = ComputeInUse(files, counts, tracked);
+            bool inUse = ComputeInUse(files, tracked);
             if (inUse)
             {
                 wasIdle = false;
@@ -217,31 +213,19 @@ public static class TemporaryUnlockService
     #endregion
 
     /// <summary>
-    /// 聚合判断一组文件当前是否“在使用中”：只要还有进程持有句柄，或曾经持续占用（≥TrackThreshold 次）
-    /// 的进程仍存活，就视为使用中。这样即使播放器读完后关闭句柄，只要它的进程还在（视频仍在播放），
-    /// 也会保持解锁，直到进程退出才允许重新加密——可覆盖数小时的长视频。
+    /// 聚合判断一组文件当前是否“在使用中”：只要仍有进程持有句柄（Restart Manager），
+    /// 或本会话打开的带窗口程序（tracked，如播放器）仍存活，就视为使用中。
+    /// 不把后台/系统进程计入，从而在没有任何程序运行时能正常自动重新加密。
     /// </summary>
-    private static bool ComputeInUse(IEnumerable<string> files, Dictionary<int, int> counts, HashSet<int> tracked)
+    private static bool ComputeInUse(IEnumerable<string> files, HashSet<int> tracked)
     {
-        var current = new HashSet<int>();
         foreach (var f in files)
         {
             var pids = GetUsingPids(f);
             if (pids == null) return true; // RM 出错：保守视为仍被占用
-            foreach (var pid in pids) current.Add(pid);
+            if (pids.Count > 0) return true; // 仍有进程持有句柄
         }
-
-        foreach (var pid in current)
-        {
-            counts.TryGetValue(pid, out var c);
-            c++;
-            counts[pid] = c;
-            if (c >= TrackThreshold) tracked.Add(pid);
-        }
-        foreach (var pid in counts.Keys.ToList())
-            if (!current.Contains(pid)) counts[pid] = 0;
-
-        return current.Count > 0 || tracked.Any(IsProcessAlive);
+        return tracked.Any(IsProcessAlive);
     }
 
     private static bool IsProcessAlive(int pid)
@@ -272,14 +256,19 @@ public static class TemporaryUnlockService
         return result;
     }
 
-    /// <summary>把“会话开始之后启动”的进程加入跟踪集合（含商店/UWP 播放器等）。</summary>
+    /// <summary>把“会话开始之后启动且带可见窗口”的进程加入跟踪集合（如播放器）。
+    /// 只跟踪带窗口的程序，避免把后台/系统进程算作占用导致永不自动重加密。</summary>
     private static void CaptureSessionProcesses(DateTime sessionStartUtc, HashSet<int> tracked)
     {
         try
         {
             foreach (var p in Process.GetProcesses())
             {
-                try { if (p.StartTime.ToUniversalTime() >= sessionStartUtc) tracked.Add(p.Id); }
+                try
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero && p.StartTime.ToUniversalTime() >= sessionStartUtc)
+                        tracked.Add(p.Id);
+                }
                 catch { } // 部分进程无法读取启动时间（权限），忽略
             }
         }

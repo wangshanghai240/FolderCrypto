@@ -27,11 +27,11 @@
                               OffContent="密码" OnContent="恢复码"
                               Toggled="OnModeToggled" Visibility="Collapsed"/>
 
-                <PasswordBox x:Name="PasswordBox" Header="密码" PasswordChanged="OnPasswordChanged" MinHeight="44"
+                <PasswordBox x:Name="PasswordBox" Header="密码" CornerRadius="4" PasswordChanged="OnPasswordChanged" MinHeight="44"
                              PasswordRevealMode="Peek"/>
-                <PasswordBox x:Name="ConfirmBox" Header="确认密码" PasswordChanged="OnPasswordChanged" MinHeight="44"
+                <PasswordBox x:Name="ConfirmBox" Header="确认密码" CornerRadius="4" PasswordChanged="OnPasswordChanged" MinHeight="44"
                              PasswordRevealMode="Peek"/>
-                <TextBox x:Name="RecoveryBox" Header="恢复码"
+                <TextBox x:Name="RecoveryBox" Header="恢复码" CornerRadius="4"
                          PlaceholderText="输入加密时展示的恢复码" Visibility="Collapsed"
                          TextChanged="OnPasswordChanged"/>
 
