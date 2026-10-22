@@ -72,19 +72,26 @@ public static class ContextMenuRegistrar
             }
         }
 
+        // ===================================================================
+        // 静态 \command 兜底（所有菜单项都要写，包括带 ExplorerCommandHandler 的）
+        //
+        // 原因：部分第三方文件资源管理器忽略 ExplorerCommandHandler，
+        // 只认静态 \command。缺少它时「加密」「解密」会同时出现且点击无反应，
+        // 外壳甚至会回退成「打开文件夹」并报 1155（无文件关联）。
+        //
+        // Explorer 会优先用 ExplorerCommandHandler 做动态显隐；
+        // 忽略它的外壳则回退到这里直接启动主程序，两者可以并存。
+        // ===================================================================
+        using (var commandKey = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"{rel}\command"))
+        {
+            commandKey.SetValue(null, $@"""{exePath}"" {arg} ""%1""");
+        }
+
+        // 记录主程序路径，供原生 IExplorerCommand 的 Invoke 启动应用。
         if (!string.IsNullOrEmpty(handlerClsid))
         {
-            // 记录主程序路径，供原生 IExplorerCommand 的 Invoke 启动应用。
-            using (var root = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\FolderCrypto"))
-                root.SetValue("AppPath", exePath);
-        }
-        else
-        {
-            // 静态动词（如文件夹空白处）：用 \command 直接启动。
-            using (var commandKey = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"{rel}\command"))
-            {
-                commandKey.SetValue(null, $@"""{exePath}"" {arg} ""%1""");
-            }
+            using var root = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\FolderCrypto");
+            root.SetValue("AppPath", exePath);
         }
     }
 

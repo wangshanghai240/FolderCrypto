@@ -7,13 +7,18 @@ public enum CommandKind
     Encrypt,
     /// <summary>对容器解密。</summary>
     Decrypt,
+    /// <summary>从文件夹空白处触发：让用户在程序内选择要加密的项。</summary>
+    EncryptHere,
 }
 
 /// <summary>一条待处理指令。</summary>
 public sealed record ShellCommand(CommandKind Kind, string Path);
 
 /// <summary>
-/// 解析命令行参数。约定：<c>--encrypt &lt;path&gt;</c> / <c>--decrypt &lt;path&gt;</c>。
+/// 解析命令行参数。约定：
+///   <c>--encrypt &lt;path&gt;</c> / <c>--decrypt &lt;path&gt;</c> / <c>--encrypt-here &lt;folder&gt;</c>
+/// 参数前导的 <c>-</c> 与 <c>/</c> 都会被去掉，因此 <c>encrypt</c>、<c>-encrypt</c>、
+/// <c>/encrypt</c> 三种写法等价。
 /// </summary>
 public static class CommandLineParser
 {
@@ -35,12 +40,23 @@ public static class CommandLineParser
         string verb = args[start].TrimStart('-', '/').ToLowerInvariant();
         string path = args[start + 1];
 
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
         return verb switch
         {
-            "encrypt" or "e" when !string.IsNullOrEmpty(path)
+            "encrypt" or "e"
                 => new ShellCommand(CommandKind.Encrypt, path),
-            "decrypt" or "d" when !string.IsNullOrEmpty(path)
+
+            "decrypt" or "d"
                 => new ShellCommand(CommandKind.Decrypt, path),
+
+            // 文件夹空白处右键「加密选中」：注册表中使用的参数名是 encrypt-here，
+            // 早期版本漏处理该动词，导致背景菜单点击后程序按「普通启动」打开主窗口，
+            // 或（未打包运行时）静默退出。这里补齐。
+            "encrypt-here" or "encrypthere" or "encrypt_here" or "eh"
+                => new ShellCommand(CommandKind.EncryptHere, path),
+
             _ => null
         };
     }

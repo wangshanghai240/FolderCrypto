@@ -13,7 +13,19 @@ Set-Location $root
 $kits  = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64'
 $pfx   = Join-Path $root 'packages\FolderCrypto.pfx'
 $thumb = 'DA635E69430FDBAB33423734763962CCE104D4DF'
-$pass  = 'p4svcWdTBJV0yCajUnto'
+
+# 签名：优先用 pfx 文件（需要环境变量密码），否则回退到本机证书存储。
+function Sign-File([string]$path) {
+    if ($env:FOLDCRYPTO_PFX_PASS) {
+        & "$kits\signtool.exe" sign /fd SHA256 /f $pfx /p $env:FOLDCRYPTO_PFX_PASS /sha1 $thumb $path | Out-Null
+    }
+    elseif (Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $thumb }) {
+        & "$kits\signtool.exe" sign /fd SHA256 /sha1 $thumb /s My $path | Out-Null
+    }
+    else {
+        throw "无法签名：既未设置 FOLDCRYPTO_PFX_PASS，本机也找不到证书 $thumb。"
+    }
+}
 
 # 1) build + sign the MSI (reuses wix\build-msi.ps1)
 Write-Host '==> 1/5 building + signing MSI ...'
@@ -53,7 +65,7 @@ if (-not (Test-Path $exe)) { throw '发布失败：未找到 FolderCrypto.Setup.
 Write-Host '==> 4/5 signing exe ...'
 $tmpExe = 'C:\Temp\_fc_bootstrapper_signed.exe'
 Copy-Item $exe $tmpExe -Force
-& "$kits\signtool.exe" sign /fd SHA256 /f $pfx /p $pass /sha1 $thumb $tmpExe | Out-Null
+Sign-File $tmpExe
 Copy-Item $tmpExe $exe -Force
 Remove-Item $tmpExe -Force -ErrorAction SilentlyContinue
 
@@ -61,4 +73,7 @@ Remove-Item $tmpExe -Force -ErrorAction SilentlyContinue
 $outExe = Join-Path $root "packages\FolderCrypto-Setup-$version-x64.exe"
 Copy-Item $exe $outExe -Force
 & "$kits\signtool.exe" verify /pa $outExe
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "exe 已签名（指纹 $thumb），但本机未信任该自签名证书；用户首次安装需先信任 FolderCrypto.cer。"
+}
 Write-Host "DONE: $outExe  ($([math]::Round((Get-Item $outExe).Length/1MB,1)) MB)"

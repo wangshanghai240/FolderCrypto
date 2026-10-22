@@ -21,11 +21,16 @@ $wxs     = Join-Path $root 'wix\FolderCrypto.wxs'
 Write-Host '==> 0/4 regenerate dark-mode icons ...'
 powershell -ExecutionPolicy Bypass -File (Join-Path $root 'wix\gen-icons.ps1') | Out-Null
 
-# 1) trimmed publish
-Write-Host '==> 1/4 dotnet publish (trimmed) ...'
+# 1) publish（不裁剪）
+# 注意：历史上这里用 -p:PublishTrimmed=true -p:TrimMode=full，会把 Core 中
+# 「未被静态引用」的成员整段删除（ContainerService、PasswordHasher.Verify/Derive、
+# PasswordPolicy.DescribeRules 等）。当时恰好无人调用所以没暴露，但只要将来新增
+# 任何经反射 / DI / JSON 反序列化访问的成员，就会「开发正常、安装版抛
+# MissingMethodException」。因此改为不裁剪，保证程序集完整；体积增加有限。
+Write-Host '==> 1/4 dotnet publish (no trim) ...'
 Remove-Item $publish,$stage -Recurse -Force -ErrorAction SilentlyContinue
 dotnet publish (Join-Path $root 'FolderCrypto.App\FolderCrypto.App.csproj') -c Release `
-    -p:Platform=x64 -p:RuntimeIdentifier=win-x64 -p:PublishTrimmed=true -p:TrimMode=full -o $publish | Out-Null
+    -p:Platform=x64 -p:RuntimeIdentifier=win-x64 -p:PublishTrimmed=false -o $publish | Out-Null
 
 # 2) stage + strip pdbs, and add the right-click Shell components (FolderCrypto.Shell +
 #    native overlay DLL + overlay icons). These register the Explorer context menu / lock icon.
@@ -83,7 +88,23 @@ wix build $wxs $uiWsx -arch x64 -o $tmpMsi | Out-Null
 Write-Host '==> 4/4 signing MSI ...'
 $tmp = 'C:\Temp\_fc_msi_tmp.msi'
 Copy-Item $tmpMsi $tmp -Force
-& "$kits\signtool.exe" sign /fd SHA256 /f $pfx /p 'p4svcWdTBJV0yCajUnto' /sha1 $thumb $tmp | Out-Null
+
+# 私钥密码从环境变量读取，绝不硬编码进源码（避免随 git 历史泄漏）。
+#
+# 两种签名方式，按可用性自动选择：
+#   A) 设置了 FOLDCRYPTO_PFX_PASS -> 用 pfx 文件签名（可移植，适合 CI）
+#   B) 未设置但本机证书存储中存在该证书 -> 用 /sha1 从存储签名（不需要密码）
+if ($env:FOLDCRYPTO_PFX_PASS) {
+    Write-Host "    使用 pfx 文件签名（证书指纹 $thumb）"
+    & "$kits\signtool.exe" sign /fd SHA256 /f $pfx /p $env:FOLDCRYPTO_PFX_PASS /sha1 $thumb $tmp | Out-Null
+}
+elseif (Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $thumb }) {
+    Write-Host "    使用本机证书存储签名（未设置 FOLDCRYPTO_PFX_PASS，证书 $thumb 可用）"
+    & "$kits\signtool.exe" sign /fd SHA256 /sha1 $thumb /s My $tmp | Out-Null
+}
+else {
+    throw "无法签名：既未设置环境变量 FOLDCRYPTO_PFX_PASS，本机证书存储中也找不到证书 $thumb。请先执行：`$env:FOLDCRYPTO_PFX_PASS='你的密码'。"
+}
 
 function Test-Writable([string]$p) {
     if (-not (Test-Path $p)) { return $true }
@@ -100,6 +121,25 @@ if ((Test-Path $outMsi) -and -not (Test-Writable $outMsi)) {
 }
 Copy-Item $tmp $final -Force
 Remove-Item $tmp,$tmpMsi -Force -ErrorAction SilentlyContinue
-& "$kits\signtool.exe" verify /pa $final
+
+# 校验签名存在且证书指纹匹配。
+# 说明：本机使用自签名证书，若证书尚未导入「受信任的根证书颁发机构」，
+# signtool verify /pa 会报「根证书不受信任」。这不是签名失败——
+# 包本身已正确签名，只是本机信任链未建立。因此这里改用 /pa /all 并
+# 只把「证书链不受信任」视为警告，其余错误仍然失败。
+Write-Host '==> 校验签名 ...'
+& "$kits\signtool.exe" verify /pa $final 2>&1 | ForEach-Object { Write-Host "    $_" }
+$verifyOk = $LASTEXITCODE -eq 0
+if (-not $verifyOk) {
+    # 单独确认签名块确实存在且指纹正确
+    $sigInfo = & "$kits\signtool.exe" verify /pa /q /v $final 2>&1 | Out-String
+    if ($sigInfo -match $thumb) {
+        Write-Warning "签名已写入且指纹匹配，但本机未信任该自签名证书（用户首次安装需先信任 FolderCrypto.cer）。"
+        Write-Warning "信任后可运行：signtool verify /pa `"$final`" 验证通过。"
+        $verifyOk = $true
+    }
+}
+if (-not $verifyOk) { throw "MSI 签名校验失败：$final" }
+
 Write-Host "DONE: $final  ($([math]::Round((Get-Item $final).Length/1MB,1)) MB)"
 

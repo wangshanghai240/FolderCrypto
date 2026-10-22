@@ -285,7 +285,8 @@ public sealed partial class PromptWindow : Window
     /// <summary>Windows Hello 模式加密：通过 PIN/人脸认证后，用已保存的密码直接加密（不显示密码输入界面）。</summary>
     private async Task DoHelloEncryptAsync()
     {
-        var secret = HelloSecretStore.TryGetSecret();
+        // 凭据读取是跨进程 WinRT 调用，必须 await 后台版本，避免阻塞 UI 线程
+        var secret = await HelloSecretStore.TryGetSecretAsync();
         if (secret == null)
         {
             ShowHint("未找到已保存的密码，请先在「设置 - 行为」中开启并保存。");
@@ -340,7 +341,8 @@ public sealed partial class PromptWindow : Window
     /// <summary>Windows Hello 模式解密：通过 PIN/人脸认证后，用已保存的凭据直接解锁（不显示密码输入界面）。</summary>
     private async Task DoHelloDecryptAsync()
     {
-        var secret = HelloSecretStore.TryGetSecret();
+        // 凭据读取是跨进程 WinRT 调用，必须 await 后台版本，避免阻塞 UI 线程
+        var secret = await HelloSecretStore.TryGetSecretAsync();
         if (secret == null)
         {
             ShowHint("未找到已保存的凭据，请先在「设置 - 行为」中开启并保存。");
@@ -389,7 +391,7 @@ public sealed partial class PromptWindow : Window
     {
         try
         {
-            var secret = HelloSecretStore.TryGetSecret();
+            var secret = await HelloSecretStore.TryGetSecretAsync();
             if (secret == null)
             {
                 ShowHint("未找到已保存的密码，请先在「设置 - 行为」中开启并保存。");

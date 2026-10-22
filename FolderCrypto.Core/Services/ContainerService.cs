@@ -109,9 +109,7 @@ public sealed class ContainerService
         {
             using var fs = File.OpenRead(containerPath);
             var header = ReadHeader(fs);
-            byte[] key = PasswordHasher.DeriveKey(password, header.Salt);
-            return CryptographicOperations.FixedTimeEquals(
-                SHA256.HashData(key), header.Verifier);
+            return KeyDerivation.VerifySecret(password, header.Salt, header.Verifier);
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or NotSupportedException)
         {
@@ -236,8 +234,8 @@ public sealed class ContainerService
     /// <summary>用密码派生密钥并校验验证器；通过则返回密钥，否则抛 <see cref="CryptographicException"/>。</summary>
     private static byte[] RequireValidPassword(Stream fs, HeaderData header, string password)
     {
-        byte[] key = PasswordHasher.DeriveKey(password, header.Salt);
-        if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(key), header.Verifier))
+        byte[]? key = KeyDerivation.TryDeriveMatchingKey(password, header.Salt, header.Verifier);
+        if (key == null)
             throw new CryptographicException("密码错误，无法解密。");
         return key;
     }
@@ -314,6 +312,9 @@ public sealed class ContainerService
 
         /// <summary>分块大小（4MB）：流式加解密内存峰值与文件大小无关。</summary>
         private const int ChunkSize = 4 * 1024 * 1024;
+
+        /// <summary>旧版 ver=2 整块解密的大小上限（256MB）：防止旧格式大文件解密时 OOM。</summary>
+        private const long LegacyWholeFileLimitBytes = 256L * 1024 * 1024;
 
         /// <summary>文件夹加密锁定标记文件名。</summary>
         public const string FolderLockFileName = ".folderlock";
@@ -477,8 +478,19 @@ public sealed class ContainerService
                 using var dst = new FileStream(tmp, FileMode.Create, FileAccess.Write);
                 if (h.Version <= LegacyVersion)
                 {
-                    // 旧版 ver=2：整份密文是单条 AES-GCM 消息（只能整块解密，兼容旧文件）
-                    byte[] payload = new byte[fs.Length - fs.Position];
+                    // 旧版 ver=2：整份密文是单条 AES-GCM 消息，必须整块解密。
+                    // 加大小上限保护，避免对大文件 OOM（旧格式无法流式处理）。
+                    long legacyBytes = fs.Length - fs.Position;
+                    if (legacyBytes > LegacyWholeFileLimitBytes)
+                    {
+                        throw new NotSupportedException(
+                            $"该文件由旧版格式（ver=2）加密，且体积为 {legacyBytes / (1024 * 1024)} MB，"
+                            + $"超过整块解密的 {LegacyWholeFileLimitBytes / (1024 * 1024)} MB 上限。\n"
+                            + "旧格式无法流式解密。请使用当时创建该文件的旧版本程序解密后再升级，"
+                            + "或用新版本重新加密（需先解密成功）。");
+                    }
+
+                    byte[] payload = new byte[legacyBytes];
                     fs.ReadExactly(payload);
                     byte[] plain = AesGcmEncryption.Decrypt(dataKey, payload);
                     dst.Write(plain, 0, plain.Length);
@@ -504,39 +516,45 @@ public sealed class ContainerService
             byte[] wrapPwd = new byte[h.WrapLen]; fs.ReadExactly(wrapPwd);
             byte[] wrapRec = new byte[h.WrapLen]; fs.ReadExactly(wrapRec);
 
-            if (!string.IsNullOrEmpty(password))
+            try
             {
-                byte[] passwordKey = PasswordHasher.DeriveKey(password, h.PwdSalt);
-                if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(passwordKey), h.PwdVerifier))
+                if (!string.IsNullOrEmpty(password))
                 {
-                    var dataKey = UnwrapKey(wrapPwd, HkdfDerive(passwordKey, WrapPwdInfo));
-                    if (dataKey != null)
+                    byte[]? passwordKey = KeyDerivation.TryDeriveMatchingKey(password, h.PwdSalt, h.PwdVerifier);
+                    if (passwordKey != null)
                     {
-                        CryptoUtil.Zero(passwordKey); CryptoUtil.Zero(wrapPwd); CryptoUtil.Zero(wrapRec);
-                        return dataKey;
+                        try
+                        {
+                            var dataKey = UnwrapKey(wrapPwd, HkdfDerive(passwordKey, WrapPwdInfo));
+                            if (dataKey != null) return dataKey;
+                        }
+                        finally { CryptoUtil.Zero(passwordKey); }
                     }
                 }
-                CryptoUtil.Zero(passwordKey);
-            }
 
-            if (!string.IsNullOrEmpty(recoveryCode))
-            {
-                byte[] recoveryKey = PasswordHasher.DeriveKey(NormalizeRecoveryCode(recoveryCode), h.RecSalt);
-                if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(recoveryKey), h.RecVerifier))
+                if (!string.IsNullOrEmpty(recoveryCode))
                 {
-                    var dataKey = UnwrapKey(wrapRec, HkdfDerive(recoveryKey, WrapRecInfo));
-                    if (dataKey != null)
+                    byte[]? recoveryKey = KeyDerivation.TryDeriveMatchingKey(
+                        NormalizeRecoveryCode(recoveryCode), h.RecSalt, h.RecVerifier);
+                    if (recoveryKey != null)
                     {
-                        CryptoUtil.Zero(recoveryKey); CryptoUtil.Zero(wrapPwd); CryptoUtil.Zero(wrapRec);
-                        return dataKey;
+                        try
+                        {
+                            var dataKey = UnwrapKey(wrapRec, HkdfDerive(recoveryKey, WrapRecInfo));
+                            if (dataKey != null) return dataKey;
+                        }
+                        finally { CryptoUtil.Zero(recoveryKey); }
                     }
                 }
-                CryptoUtil.Zero(recoveryKey);
-            }
 
-            CryptoUtil.Zero(wrapPwd);
-            CryptoUtil.Zero(wrapRec);
-            throw new CryptographicException("密码或恢复码错误，无法解密。");
+                throw new CryptographicException("密码或恢复码错误，无法解密。");
+            }
+            finally
+            {
+                // 无论成功、失败还是异常，包裹密文都必须清零
+                CryptoUtil.Zero(wrapPwd);
+                CryptoUtil.Zero(wrapRec);
+            }
         }
 
         /// <summary>分块流式解密 ver=3 密文并写入目标流。</summary>
@@ -630,6 +648,8 @@ public sealed class ContainerService
             }
 
             // 放置隐藏标记（含密码/恢复码验证）
+            // 注意：必须先成功写出标记，再加 ACL 锁。否则一旦写标记失败却已上锁，
+            // 文件夹会变成「锁着但没有标记」的状态——既进不去、又被 IsFolderEncrypted 判定为未加密。
             string markerPath = Path.Combine(folderPath, FolderLockFileName);
             byte[] marker = BuildPayload(Array.Empty<byte>(), password, recoveryCode);
             File.WriteAllBytes(markerPath, marker);
@@ -673,6 +693,12 @@ public sealed class ContainerService
         /// <summary>
         /// 解密（解锁）文件夹：递归解密文件夹内所有文件 + 删除标记 + 解除权限封锁。
         /// 密码或恢复码任一正确即可。
+        ///
+        /// 失败语义（重要）：
+        ///   - 密码/恢复码错误 → 完整回滚（重新锁回文件夹），状态与调用前一致。
+        ///   - 密码正确但中途文件解密失败（被占用等）→ **不回滚、不重新上锁**，
+        ///     已解密的文件保持明文、未解密的保持密文，并抛出包含明细的异常。
+        ///     这样用户可关闭占用程序后重试，而不会把用户永久挡在自己文件之外。
         /// </summary>
         public static void DecryptFolder(string folderPath, string? password = null, string? recoveryCode = null, IProgress<int>? progress = null)
         {
@@ -685,20 +711,42 @@ public sealed class ContainerService
 
             // 权限锁定的文件夹无法直接读取标记：先解锁再读取校验。
             bool wasLocked = UnlockFolderAcl(folderPath);
+
+            // 第一步：仅校验密码/恢复码。此步骤失败属于“凭据错误”，必须完整回滚。
             try
             {
                 DecryptPayload(File.ReadAllBytes(markerPath), encrypted: true, password, recoveryCode);
-
-                // 递归解密所有已加密文件（旧式仅 ACL 锁定的文件夹内没有加密文件，自动跳过）
-                DecryptFilesRecursive(folderPath, password, recoveryCode, progress);
-
-                File.Delete(markerPath);
             }
             catch
             {
-                // 密码/恢复码错误或解密失败：重新锁回去，避免错误输入导致解锁。
-                if (wasLocked) LockFolderAcl(folderPath);
+                if (wasLocked) LockFolderAcl(folderPath);   // 凭据错误：恢复原状
                 throw;
+            }
+
+            // 第二步：凭据已验证通过，开始递归解密。
+            // 此后的任何失败都**不再重新上锁**——否则用户将无法再次进入文件夹重试。
+            var decrypted = new List<string>();
+            try
+            {
+                DecryptFilesRecursive(folderPath, password, recoveryCode, progress, decrypted);
+                File.Delete(markerPath);
+            }
+            catch (Exception ex)
+            {
+                // 保留解锁状态与已解密的明文，让用户能自行处理并重试。
+                // 仅当「一个文件都没解出来」时才把锁加回去，尽量减少半成品状态。
+                if (wasLocked && decrypted.Count == 0)
+                {
+                    try { LockFolderAcl(folderPath); } catch { }
+                }
+
+                string detail = decrypted.Count == 0
+                    ? "尚未解密任何文件，已恢复为锁定状态。"
+                    : $"已成功解密 {decrypted.Count} 个文件（保持明文），其余仍为密文；"
+                      + "文件夹保持可访问状态，请在关闭占用程序后重新执行解锁以完成剩余文件。";
+
+                throw new IOException(
+                    $"文件夹解锁未完成：{ex.Message}\n{detail}", ex);
             }
         }
 
@@ -752,8 +800,9 @@ public sealed class ContainerService
             progress?.Report(100);
         }
 
-        /// <summary>递归解密文件夹内所有已加密文件（跳过标记文件与未加密文件），并把每个文件的内部进度映射到文件夹整体进度。</summary>
-        private static void DecryptFilesRecursive(string folderPath, string? password, string? recoveryCode, IProgress<int>? progress)
+        /// <summary>递归解密文件夹内所有已加密文件（跳过标记文件与未加密文件），并把每个文件的内部进度映射到文件夹整体进度。
+        /// <paramref name="decrypted"/> 按顺序记录成功解密的文件，供上层在部分失败时准确报告与决策。</summary>
+        private static void DecryptFilesRecursive(string folderPath, string? password, string? recoveryCode, IProgress<int>? progress, List<string>? decrypted = null)
         {
             string[] files = EnumerateFiles(folderPath);
 
@@ -773,6 +822,8 @@ public sealed class ContainerService
                     {
                         DecryptFile(f, password, recoveryCode);
                     }
+
+                    decrypted?.Add(f);   // 该文件已成功解密
                 }
                 catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && ex is not FileNotFoundException)
                 {
@@ -977,32 +1028,53 @@ public sealed class ContainerService
             byte[] wrapPwd = new byte[h.WrapLen]; ms.ReadExactly(wrapPwd);
             byte[] wrapRec = new byte[h.WrapLen]; ms.ReadExactly(wrapRec);
             int cipherLen = payload.Length - (int)h.DataStart - h.WrapLen - h.WrapLen;
+            if (cipherLen < 0)
+                throw new InvalidDataException("加密数据已损坏：头部长度字段与实际内容不符。");
+
             byte[] cipher = new byte[cipherLen];
             ms.ReadExactly(cipher);
 
-            // 尝试用密码解锁
-            if (!string.IsNullOrEmpty(password))
+            try
             {
-                byte[] passwordKey = PasswordHasher.DeriveKey(password, h.PwdSalt);
-                if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(passwordKey), h.PwdVerifier))
+                // 尝试用密码解锁
+                if (!string.IsNullOrEmpty(password))
                 {
-                    var dataKey = UnwrapKey(wrapPwd, HkdfDerive(passwordKey, WrapPwdInfo));
-                    if (dataKey != null) return AesGcmEncryption.Decrypt(dataKey, cipher);
+                    byte[]? passwordKey = KeyDerivation.TryDeriveMatchingKey(password, h.PwdSalt, h.PwdVerifier);
+                    if (passwordKey != null)
+                    {
+                        try
+                        {
+                            var dataKey = UnwrapKey(wrapPwd, HkdfDerive(passwordKey, WrapPwdInfo));
+                            if (dataKey != null) return AesGcmEncryption.Decrypt(dataKey, cipher);
+                        }
+                        finally { CryptoUtil.Zero(passwordKey); }
+                    }
                 }
-            }
 
-            // 尝试用恢复码解锁
-            if (!string.IsNullOrEmpty(recoveryCode))
+                // 尝试用恢复码解锁
+                if (!string.IsNullOrEmpty(recoveryCode))
+                {
+                    byte[]? recoveryKey = KeyDerivation.TryDeriveMatchingKey(
+                        NormalizeRecoveryCode(recoveryCode), h.RecSalt, h.RecVerifier);
+                    if (recoveryKey != null)
+                    {
+                        try
+                        {
+                            var dataKey = UnwrapKey(wrapRec, HkdfDerive(recoveryKey, WrapRecInfo));
+                            if (dataKey != null) return AesGcmEncryption.Decrypt(dataKey, cipher);
+                        }
+                        finally { CryptoUtil.Zero(recoveryKey); }
+                    }
+                }
+
+                throw new CryptographicException("密码或恢复码错误，无法解密。");
+            }
+            finally
             {
-                byte[] recoveryKey = PasswordHasher.DeriveKey(NormalizeRecoveryCode(recoveryCode), h.RecSalt);
-                if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(recoveryKey), h.RecVerifier))
-                {
-                    var dataKey = UnwrapKey(wrapRec, HkdfDerive(recoveryKey, WrapRecInfo));
-                    if (dataKey != null) return AesGcmEncryption.Decrypt(dataKey, cipher);
-                }
+                CryptoUtil.Zero(wrapPwd);
+                CryptoUtil.Zero(wrapRec);
+                CryptoUtil.Zero(cipher);
             }
-
-            throw new CryptographicException("密码或恢复码错误，无法解密。");
         }
 
         /// <summary>解开包裹的数据密钥；认证失败（密钥不对）返回 null。</summary>
@@ -1046,13 +1118,9 @@ public sealed class ContainerService
 
         private static bool TryVerify(HeaderInfo h, string secret, bool useRecovery)
         {
-            if (useRecovery)
-            {
-                byte[] key = PasswordHasher.DeriveKey(secret, h.RecSalt);
-                return CryptographicOperations.FixedTimeEquals(SHA256.HashData(key), h.RecVerifier);
-            }
-            byte[] k = PasswordHasher.DeriveKey(secret, h.PwdSalt);
-            return CryptographicOperations.FixedTimeEquals(SHA256.HashData(k), h.PwdVerifier);
+            return useRecovery
+                ? KeyDerivation.VerifySecret(secret, h.RecSalt, h.RecVerifier)
+                : KeyDerivation.VerifySecret(secret, h.PwdSalt, h.PwdVerifier);
         }
 
         private static byte[] HkdfDerive(byte[] ikm, string info)
@@ -1074,8 +1142,54 @@ public sealed class ContainerService
     /// <summary>敏感字节清零工具。</summary>
     internal static class CryptoUtil
     {
-        public static void Zero(byte[] data)
+        public static void Zero(byte[]? data)
         {
             if (data != null) Array.Clear(data, 0, data.Length);
+        }
+    }
+
+    /// <summary>
+    /// 兼容多代迭代次数的密钥派生helper。
+    ///
+    /// 背景：PBKDF2 迭代次数从历史值（200,000）提高到当前值（600,000）后，
+    /// 以旧次数加密的文件若只用新次数派生，将永远无法解开。
+    /// 因此统一通过本类尝试所有已知次数。
+    /// </summary>
+    internal static class KeyDerivation
+    {
+        private const int VerifierSize = 32;
+
+        /// <summary>
+        /// 派生「与给定验证器匹配」的密钥。
+        /// 依次尝试当前与历史迭代次数；命中返回密钥（调用方负责清零），
+        /// 全部失败返回 null。
+        /// </summary>
+        public static byte[]? TryDeriveMatchingKey(string secret, byte[] salt, byte[] expectedVerifier)
+        {
+            if (expectedVerifier == null || expectedVerifier.Length != VerifierSize)
+                return null;
+
+            Span<int> attempts = stackalloc int[2];
+            attempts[0] = PasswordHasher.Iterations;
+            attempts[1] = PasswordHasher.LegacyIterations;
+
+            foreach (int iters in attempts)
+            {
+                if (iters <= 0) continue;
+                byte[] key = PasswordHasher.DeriveKey(secret, salt, iters);
+                if (CryptographicOperations.FixedTimeEquals(SHA256.HashData(key), expectedVerifier))
+                    return key;                    // 调用方负责清零
+                CryptoUtil.Zero(key);              // 未命中：立即清零
+            }
+            return null;
+        }
+
+        /// <summary>校验密钥是否与给定验证器匹配（内部完成派生与清零）。</summary>
+        public static bool VerifySecret(string secret, byte[] salt, byte[] expectedVerifier)
+        {
+            byte[]? key = TryDeriveMatchingKey(secret, salt, expectedVerifier);
+            if (key == null) return false;
+            CryptoUtil.Zero(key);
+            return true;
         }
     }

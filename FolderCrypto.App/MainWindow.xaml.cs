@@ -339,7 +339,23 @@ public sealed partial class MainWindow : Window
                 UpdateHelloUi();
                 return;
             }
-            HelloSecretStore.SaveSecret("password", pwd);
+
+            // 凭据写入是跨进程的 WinRT 调用，放到后台线程执行（见 HelloSecretStore 注释）。
+            // 注：SetPasswordDialog 的关闭与后续任何对话框已由 DialogHelper 的串行化闸门
+            // 隔离，此处无需再手动让出帧。
+            bool saved = await HelloSecretStore.SaveSecretAsync(HelloSecretStore.PasswordKind, pwd);
+            if (!saved)
+            {
+                _suppressHelloEvent = true;
+                HelloSwitch.IsOn = false;
+                _suppressHelloEvent = false;
+                UpdateHelloUi();
+                await DialogHelper.ShowError(this,
+                    "无法将解锁凭据写入 Windows 凭据管理器，Windows Hello 解锁未开启。\n" +
+                    "请确认系统凭据管理器可用后重试。");
+                return;
+            }
+
             SettingsService.WindowsHelloUnlock = true;
             SetStatus("已开启 Windows Hello 解锁");
         }
@@ -359,8 +375,8 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            // 关闭：清除已保存的凭据
-            HelloSecretStore.ClearSecret();
+            // 关闭：清除已保存的凭据（放到后台，避免阻塞 UI 线程）
+            await HelloSecretStore.ClearSecretAsync();
             SettingsService.WindowsHelloUnlock = false;
             SetStatus("已关闭 Windows Hello 解锁");
         }
@@ -478,7 +494,8 @@ public sealed partial class MainWindow : Window
 
         if (dialog.XamlRoot == null) return;
 
-        var choice = await dialog.ShowAsync();
+        // 经串行化闸门显示，避免与其它 ContentDialog 相撞导致窗口无响应
+        var choice = await DialogHelper.ShowSerializedAsync(async () => await dialog.ShowAsync());
         if (choice == ContentDialogResult.Primary)
         {
             await DownloadAndInstallAsync(result);
@@ -529,7 +546,12 @@ public sealed partial class MainWindow : Window
                 ? $"FolderCrypto-Setup-{result.LatestVersion}-x64.exe"
                 : $"FolderCrypto-便携版-{result.LatestVersion}.zip";
 
-        // 模态显示下载进度对话框，同时后台下载；用户点「取消」关闭对话框即中止
+        // 模态显示下载进度对话框，同时后台下载；用户点「取消」关闭对话框即中止。
+        //
+        // ⚠️ 此对话框**不能**走 DialogHelper 的串行化闸门：
+        // 它用 Hide() 而非 Close 结束，ShowAsync 永远不会返回，
+        // 会把闸门永久占住，导致后续任何对话框都无法显示（造成新的死锁）。
+        // 它由「发现新版本」对话框之后启动，二者之间已有充分间隔，风险低。
         var dialogClosed = new TaskCompletionSource<bool>();
         progress.Closed += (s, ev) => dialogClosed.TrySetResult(true);
         _ = progress.ShowAsync();
@@ -593,7 +615,8 @@ public sealed partial class MainWindow : Window
         };
         if (dialog.XamlRoot == null) return;
 
-        var choice = await dialog.ShowAsync();
+        // 经串行化闸门显示
+        var choice = await DialogHelper.ShowSerializedAsync(async () => await dialog.ShowAsync());
         if (choice == ContentDialogResult.Primary)
         {
             OpenUrl(result.ReleasePageUrl ?? "https://github.com/wangshanghai240/FolderCrypto/releases");
@@ -657,7 +680,8 @@ public sealed partial class MainWindow : Window
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot
         };
-        var kind = await kindDialog.ShowAsync();
+        // 经串行化闸门显示，避免紧接着的 PromptWindow / 其它对话框撞上关闭窗口期
+        var kind = await DialogHelper.ShowSerializedAsync(async () => await kindDialog.ShowAsync());
         if (kind != ContentDialogResult.Primary && kind != ContentDialogResult.Secondary) return;
         bool chooseFolder = kind == ContentDialogResult.Secondary;
 

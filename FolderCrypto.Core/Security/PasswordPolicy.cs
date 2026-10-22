@@ -15,14 +15,17 @@ public enum PasswordStrength
 
 /// <summary>
 /// 密码强度校验规则：
-///   - 长度必须超过 6 位（&gt;= 7）
+///   - 长度至少 12 位
 ///   - 必须同时包含：数字、字母、特殊字符
 /// 并额外提供一个 0..4 的强度评分，用于 UI 强度条显示。
 /// </summary>
 public static class PasswordPolicy
 {
-    /// <summary>密码最小允许长度（必须大于 6，因此最小为 7）。</summary>
-    public const int MinLength = 7;
+    /// <summary>密码最小允许长度。加密软件应以抗离线爆破为准，12 位是当前合理下限。</summary>
+    public const int MinLength = 12;
+
+    /// <summary>旧版最小长度（7）。仅用于提示历史文件的密码策略差异，不再用于新校验。</summary>
+    public const int LegacyMinLength = 7;
 
     /// <summary>错误原因描述列表。</summary>
     public static IReadOnlyList<string> Validate(string? password)
@@ -35,9 +38,9 @@ public static class PasswordPolicy
             return errors;
         }
 
-        if (password.Length <= 6)
+        if (password.Length < MinLength)
         {
-            errors.Add($"密码长度需大于 6 位（当前 {password.Length} 位）");
+            errors.Add($"密码长度需至少 {MinLength} 位（当前 {password.Length} 位）");
         }
 
         if (!password.Any(char.IsDigit))
@@ -67,7 +70,7 @@ public static class PasswordPolicy
 
     /// <summary>返回一个可读的规则说明（用于 UI 提示）。</summary>
     public static string DescribeRules()
-        => "密码需超过 6 位，且同时包含数字、字母和特殊字符（如 !@#$%^&*）。";
+        => $"密码需至少 {MinLength} 位，且同时包含数字、字母和特殊字符（如 !@#$%^&*）。";
 
     /// <summary>
     /// 评估密码强度，返回 0..4 的评分（0=极弱，4=最强）。
@@ -77,12 +80,12 @@ public static class PasswordPolicy
     {
         if (string.IsNullOrEmpty(password)) return 0;
         int len = password.Length;
-        if (len <= 6) return 0; // 不满足基本长度
+        if (len < MinLength) return 0; // 不满足基本长度
 
         int raw = 0;
-        if (len >= 8) raw++;
         if (len >= 12) raw++;
         if (len >= 16) raw++;
+        if (len >= 20) raw++;
 
         // 多样字符类别数（0..4）
         int cats = 0;

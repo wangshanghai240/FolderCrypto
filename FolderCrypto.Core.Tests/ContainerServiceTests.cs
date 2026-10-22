@@ -20,7 +20,11 @@ public class ContainerServiceTests : IDisposable
         catch { /* 忽略清理失败 */ }
     }
 
-    private const string ValidPassword = "Abcd1234!";
+    // 12 位、含字母/数字/特殊字符：满足当前 PasswordPolicy 的最小长度要求
+    private const string ValidPassword = "Abcd1234!xyz";
+
+    /// <summary>低于当前最小长度的密码，用于验证策略确实生效。</summary>
+    private const string TooShortPassword = "Abcd1234!";
 
     [Fact]
     public void SingleFile_RoundTrip_RestoresContent()
@@ -71,7 +75,7 @@ public class ContainerServiceTests : IDisposable
         ContainerService.CreateContainer(srcFile, container, ValidPassword);
 
         Assert.True(ContainerService.VerifyPassword(container, ValidPassword));
-        Assert.False(ContainerService.VerifyPassword(container, "Wrong123!"));
+        Assert.False(ContainerService.VerifyPassword(container, "Wrong123!xyz"));
     }
 
     [Fact]
@@ -83,7 +87,19 @@ public class ContainerServiceTests : IDisposable
         ContainerService.CreateContainer(srcFile, container, ValidPassword);
 
         Assert.Throws<CryptographicException>(
-            () => ContainerService.ExtractContainer(container, _workDir, "Wrong123!"));
+            () => ContainerService.ExtractContainer(container, _workDir, "Wrong123!xyz"));
+    }
+
+    [Fact]
+    public void CreateContainer_RejectsPasswordBelowPolicy()
+    {
+        string srcFile = Path.Combine(_workDir, "s.txt");
+        File.WriteAllText(srcFile, "data");
+        string container = Path.Combine(_workDir, "c.fenc");
+
+        // 政策要求至少 12 位，9 位密码必须被拒绝
+        Assert.Throws<ArgumentException>(
+            () => ContainerService.CreateContainer(srcFile, container, TooShortPassword));
     }
 
     [Fact]

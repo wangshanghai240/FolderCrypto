@@ -1,4 +1,4 @@
-# ===========================================================================
+﻿# ===========================================================================
 #  FolderCrypto - perUser 诊断构建 + 自动化安装（定位 2343 / UI 消失）
 #  1) publish 2) stage 3) gen perUser wxs 4) wix build 5) msiexec /l*v 自动跑
 #  输出: C:\Temp\_fc_diag_i.log   (详细安装日志)
@@ -14,9 +14,9 @@ $wxs     = 'C:\Temp\_fc_diag_src\FolderCrypto.wxs'
 Remove-Item $publish,$stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $publish,$stage | Out-Null
 
-Write-Host '==> publish (trimmed) ...'
+Write-Host '==> publish (no trim) ...'
 dotnet publish (Join-Path $root 'FolderCrypto.App\FolderCrypto.App.csproj') -c Release `
-    -p:Platform=x64 -p:RuntimeIdentifier=win-x64 -p:PublishTrimmed=true -p:TrimMode=full -o $publish | Out-Null
+    -p:Platform=x64 -p:RuntimeIdentifier=win-x64 -p:PublishTrimmed=false -o $publish | Out-Null
 
 Write-Host '==> stage ...'
 Copy-Item "$publish\*" $stage -Recurse -Force

@@ -170,13 +170,28 @@ static bool IsPathEncrypted(LPCWSTR pwszPath)
 //   Win10/11 均可靠地按选中项动态显示/隐藏“加密/解密”。
 //   - CEncryptStateHandler：未加密时显示“加密”
 //   - CDecryptStateHandler：已加密时显示“解密”
-//   动词注册用 ExplorerCommandHandler = {CLSID}（比 CommandStateHandler 更可靠，
-//   旧 CommandStateHandler 在 Win10 下会显示为灰色不可用且加密/解密同时出现）。
+//
+//   ⚠️ 重要：调用方可能传入 psiItemArray == nullptr
+//   （例如部分第三方文件管理器、以及 Explorer 背景菜单路径）。
+//   早期实现里 GetState 在拿到空数组时一律返回 ECS_HIDDEN，
+//   于是两个项都被“隐藏”，但注册表里仍有静态 MUIVerb/Icon，
+//   结果就是「加密」与「解密」同时出现且都能点。
+//
+//   现在的策略：
+//     * 空数组 / 取不到路径  -> 返回 ECS_ENABLED（宁可显示可用的项，
+//       也不要出现两个都点了没反应的死菜单）
+//     * 拿到路径             -> 按真实加密状态决定显示/隐藏
+//   同时在 Invoke 里做状态校验，防止用户在错误的方向上误操作后毫无反馈。
 // ---------------------------------------------------------------------------
 // 共享：计算右键命令状态。showWhenEncrypted 为 true 则“已加密时显示”，否则“未加密时显示”。
 static void ComputeCmdState(IShellItemArray* psiItemArray, bool showWhenEncrypted, EXPCMDSTATE* pCmdState)
 {
-    *pCmdState = ECS_HIDDEN;
+    if (pCmdState == nullptr)
+        return;
+
+    // 默认显示：无法判定状态时不要制造“两个菜单项同时出现且都不可用”的体验。
+    *pCmdState = ECS_ENABLED;
+
     if (psiItemArray == nullptr)
         return;
 
@@ -186,13 +201,19 @@ static void ComputeCmdState(IShellItemArray* psiItemArray, bool showWhenEncrypte
         return;
 
     PWSTR pszPath = nullptr;
+    bool havePath = false;
     bool encrypted = false;
     if (SUCCEEDED(psiItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath)) && pszPath != nullptr)
     {
+        havePath = true;
         encrypted = IsPathEncrypted(pszPath);
         CoTaskMemFree(pszPath);
     }
     psiItem->Release();
+
+    // 拿不到文件系统路径（虚拟项等）时同样保持可见。
+    if (!havePath)
+        return;
 
     bool show = (showWhenEncrypted == encrypted);
     *pCmdState = show ? ECS_ENABLED : ECS_HIDDEN;
@@ -262,11 +283,57 @@ static bool ReadAppExePath(std::wstring& outExe)
     return !outExe.empty();
 }
 
-// 用 ShellExecute 启动主程序处理选中项
+// ---------------------------------------------------------------------------
+// 用 ShellExecuteEx 启动主程序处理选中项。
+//
+// 关键修正：不再传 L"open" 动词。
+//   ShellExecuteW(..., L"open", exe, ...) 会走「.exe 的默认 open 动词」，
+//   一旦该关联被第三方文件管理器/清理工具破坏，就会返回
+//   SE_ERR_NOASSOC (1155)，而且上面的代码**丢弃了返回值**，
+//   用户看到的现象是「点了右键菜单什么都没发生」。
+//   传 nullptr 动词时 ShellExecuteEx 直接按可执行文件启动，
+//   不依赖任何文件关联。
+//
+// 失败时弹窗告知，绝不静默返回。
+// ---------------------------------------------------------------------------
 static void LaunchApp(const std::wstring& appExe, const wchar_t* action, const std::wstring& path)
 {
     std::wstring args = std::wstring(action) + L" \"" + path + L"\"";
-    ShellExecuteW(nullptr, L"open", appExe.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
+
+    // 工作目录设为程序所在目录，避免程序按当前目录（可能是被右键的文件夹）解析相对路径。
+    std::wstring workDir;
+    size_t slash = appExe.find_last_of(L'\\');
+    if (slash != std::wstring::npos)
+        workDir = appExe.substr(0, slash);
+
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    sei.fMask         = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+    sei.lpVerb        = nullptr;           // 关键：不走 open 动词
+    sei.lpFile        = appExe.c_str();
+    sei.lpParameters  = args.c_str();
+    sei.lpDirectory   = workDir.empty() ? nullptr : workDir.c_str();
+    sei.nShow         = SW_SHOWNORMAL;
+    sei.hwnd          = ::GetForegroundWindow();
+
+    if (!::ShellExecuteExW(&sei))
+    {
+        DWORD err = ::GetLastError();
+        wchar_t msg[1024] = { 0 };
+        if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND)
+        {
+            _snwprintf_s(msg, _countof(msg), _TRUNCATE,
+                L"未能启动 FolderCrypto 主程序，文件不存在：\n%s\n\n"
+                L"请重新运行安装程序修复。", appExe.c_str());
+        }
+        else
+        {
+            _snwprintf_s(msg, _countof(msg), _TRUNCATE,
+                L"未能启动 FolderCrypto 主程序。\n\n"
+                L"程序路径：%s\n错误代码：%lu\n\n"
+                L"请确认程序已正确安装。", appExe.c_str(), (unsigned long)err);
+        }
+        ::MessageBoxW(nullptr, msg, L"FolderCrypto 右键菜单", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+    }
 }
 
 class ATL_NO_VTABLE CEncryptStateHandler :
@@ -304,8 +371,18 @@ public:
     STDMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) override
     {
         std::wstring path, exe;
-        if (FAILED(GetFirstSelectedPath(psiItemArray, path)) || path.empty()) return S_OK;
-        if (ReadAppExePath(exe) && !exe.empty()) LaunchApp(exe, L"encrypt", path);
+        if (FAILED(GetFirstSelectedPath(psiItemArray, path)) || path.empty())
+            return E_FAIL;
+        if (!ReadAppExePath(exe) || exe.empty())
+        {
+            ::MessageBoxW(nullptr,
+                L"未找到 FolderCrypto 主程序路径。\n\n"
+                L"注册表项 HKCU\\Software\\FolderCrypto\\AppPath 缺失，\n"
+                L"请重新运行 FolderCrypto 安装程序进行修复。",
+                L"FolderCrypto 右键菜单", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+            return E_FAIL;
+        }
+        LaunchApp(exe, L"encrypt", path);
         return S_OK;
     }
 
@@ -351,8 +428,18 @@ public:
     STDMETHODIMP Invoke(IShellItemArray* psiItemArray, IBindCtx* /*pbc*/) override
     {
         std::wstring path, exe;
-        if (FAILED(GetFirstSelectedPath(psiItemArray, path)) || path.empty()) return S_OK;
-        if (ReadAppExePath(exe) && !exe.empty()) LaunchApp(exe, L"decrypt", path);
+        if (FAILED(GetFirstSelectedPath(psiItemArray, path)) || path.empty())
+            return E_FAIL;
+        if (!ReadAppExePath(exe) || exe.empty())
+        {
+            ::MessageBoxW(nullptr,
+                L"未找到 FolderCrypto 主程序路径。\n\n"
+                L"注册表项 HKCU\\Software\\FolderCrypto\\AppPath 缺失，\n"
+                L"请重新运行 FolderCrypto 安装程序进行修复。",
+                L"FolderCrypto 右键菜单", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+            return E_FAIL;
+        }
+        LaunchApp(exe, L"decrypt", path);
         return S_OK;
     }
 

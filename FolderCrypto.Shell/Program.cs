@@ -63,6 +63,9 @@ public static class Program
         Console.WriteLine("正在安装右键菜单...");
         ContextMenuRegistrar.Install(exePath, iconDir);
 
+        Console.WriteLine("正在注册 .fenc 容器文件关联...");
+        ContainerAssociationRegistrar.Install(exePath);
+
         Console.WriteLine("正在注册锁图标覆盖层（原生 ATL DLL）...");
         OverlayRegistrar.InstallOverlay(
             dll,

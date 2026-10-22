@@ -34,7 +34,10 @@ public class InPlaceEncryptionTests : IDisposable
         catch { /* 清理忽略 */ }
     }
 
-    private const string ValidPassword = "Abcd1234!";
+    // 12 位、含字母/数字/特殊字符：满足当前 PasswordPolicy.MinLength
+    private const string ValidPassword = "Abcd1234!xyz";
+    private const string OtherPassword = "Zyxw9876!abc";
+    private const string WrongPassword = "Wrong123!xyz";
 
     [Fact]
     public void File_EncryptRoundTrip_RestoresOriginal()
@@ -61,9 +64,9 @@ public class InPlaceEncryptionTests : IDisposable
         File.WriteAllText(file, "data");
         InPlaceEncryptionService.EncryptFile(file, ValidPassword);
 
-        Assert.False(InPlaceEncryptionService.VerifyFilePassword(file, "Wrong123!"));
+        Assert.False(InPlaceEncryptionService.VerifyFilePassword(file, WrongPassword));
         Assert.Throws<CryptographicException>(
-            () => InPlaceEncryptionService.DecryptFile(file, "Wrong123!"));
+            () => InPlaceEncryptionService.DecryptFile(file, WrongPassword));
     }
 
     [Fact]
@@ -113,13 +116,15 @@ public class InPlaceEncryptionTests : IDisposable
     }
 
     /// <summary>按旧版 ver=2 格式构造加密载荷（单条 AES-GCM 整文件），供兼容性测试使用。</summary>
-    private static byte[] BuildLegacyVer2Payload(byte[] content, string password, string recoveryCode)
+    private static byte[] BuildLegacyVer2Payload(byte[] content, string password, string recoveryCode,
+        int? iterations = null)
     {
+        int iters = iterations ?? PasswordHasher.Iterations;
         byte[] dataKey = RandomNumberGenerator.GetBytes(32);
         byte[] pwdSalt = RandomNumberGenerator.GetBytes(16);
-        byte[] pwdKey = PasswordHasher.DeriveKey(password, pwdSalt);
+        byte[] pwdKey = PasswordHasher.DeriveKey(password, pwdSalt, iters);
         byte[] recSalt = RandomNumberGenerator.GetBytes(16);
-        byte[] recKey = PasswordHasher.DeriveKey(InPlaceEncryptionService.NormalizeRecoveryCode(recoveryCode), recSalt);
+        byte[] recKey = PasswordHasher.DeriveKey(InPlaceEncryptionService.NormalizeRecoveryCode(recoveryCode), recSalt, iters);
 
         byte[] wrapPwd = AesGcmEncryption.Encrypt(Hkdf(pwdKey, "FolderCrypto:WrapPwd"), dataKey);
         byte[] wrapRec = AesGcmEncryption.Encrypt(Hkdf(recKey, "FolderCrypto:WrapRec"), dataKey);
@@ -160,7 +165,7 @@ public class InPlaceEncryptionTests : IDisposable
 
         // 错误密码无法解锁
         Assert.Throws<CryptographicException>(
-            () => InPlaceEncryptionService.DecryptFolder(dir, "Wrong123!"));
+            () => InPlaceEncryptionService.DecryptFolder(dir, WrongPassword));
 
         InPlaceEncryptionService.DecryptFolder(dir, ValidPassword);
         Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
@@ -178,7 +183,7 @@ public class InPlaceEncryptionTests : IDisposable
         InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
 
         // 权限锁定后，错误密码校验失败
-        Assert.False(InPlaceEncryptionService.VerifyFolderPassword(dir, "Wrong123!"));
+        Assert.False(InPlaceEncryptionService.VerifyFolderPassword(dir, WrongPassword));
         // 正确密码仍可校验
         Assert.True(InPlaceEncryptionService.VerifyFolderPassword(dir, ValidPassword));
         // 校验本身不应破坏锁定（校验后仍不可浏览）
@@ -309,7 +314,7 @@ public class InPlaceEncryptionTests : IDisposable
         // 预先存在一个“本次操作之前已加密”的文件（用别的密码加密），取消回滚时它应保持不变
         string preFile = Path.Combine(dir, "pre.bin");
         File.WriteAllBytes(preFile, new byte[4096]);
-        InPlaceEncryptionService.EncryptFile(preFile, "OtherPass123!");
+        InPlaceEncryptionService.EncryptFile(preFile, "OtherPass123!xyz");
 
         // 多文件且每个略大于分块(4MB)，确保取消发生在“部分文件已加密、尚未全部完成”时
         for (int i = 0; i < 6; i++)
@@ -475,7 +480,7 @@ public class InPlaceEncryptionTests : IDisposable
         // 错误的恢复码无法解密
         Assert.False(InPlaceEncryptionService.VerifyFilePassword(file, "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF", isRecovery: true));
         Assert.Throws<CryptographicException>(
-            () => InPlaceEncryptionService.DecryptFile(file, password: "x", recoveryCode: "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"));
+            () => InPlaceEncryptionService.DecryptFile(file, password: "xx", recoveryCode: "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"));
     }
 
     [Fact]
@@ -495,5 +500,172 @@ public class InPlaceEncryptionTests : IDisposable
         InPlaceEncryptionService.DecryptFolder(dir, password: "not-the-password", recoveryCode: recovery);
         Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
         Assert.Equal("保密内容 88", File.ReadAllText(Path.Combine(dir, "inner.txt")));
+    }
+
+    // ================= P0 回归：文件夹绝不能被锁死 =================
+
+    [Fact]
+    public void Folder_WrongPassword_RollsBackToFullyLockedState()
+    {
+        // 凭据错误属于「尚未开始解密」，必须完整回滚：
+        // 文件夹仍是已加密状态，且内部文件仍是密文。
+        string dir = Path.Combine(_dir, "pwd_wrong_rollback");
+        Directory.CreateDirectory(dir);
+        string inner = Path.Combine(dir, "a.txt");
+        File.WriteAllText(inner, "top secret");
+
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+
+        Assert.Throws<CryptographicException>(
+            () => InPlaceEncryptionService.DecryptFolder(dir, OtherPassword));
+
+        Assert.True(InPlaceEncryptionService.IsFolderEncrypted(dir),
+            "密码错误后，文件夹应仍被判定为已加密。");
+        InPlaceEncryptionService.UnlockFolderAcl(dir);
+        Assert.True(InPlaceEncryptionService.IsFileEncrypted(inner),
+            "密码错误不得解密任何文件。");
+    }
+
+    [Fact]
+    public void Folder_AfterWrongPassword_CanStillUnlockWithCorrectPassword()
+    {
+        // 这是修复前的核心故障：解密失败会把文件夹重新锁死，
+        // 导致用户即使随后输入正确密码也无法再次解锁（文件等于永久丢失）。
+        string dir = Path.Combine(_dir, "retry_after_failure");
+        Directory.CreateDirectory(dir);
+        string inner = Path.Combine(dir, "valuable.txt");
+        File.WriteAllText(inner, "valuable data");
+
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+
+        // 用户先输错一次
+        Assert.Throws<CryptographicException>(
+            () => InPlaceEncryptionService.DecryptFolder(dir, OtherPassword));
+
+        // 再用正确密码必须成功 —— 证明没有被永久锁死
+        InPlaceEncryptionService.DecryptFolder(dir, ValidPassword);
+
+        Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
+        Assert.Equal("valuable data", File.ReadAllText(inner));
+    }
+
+    [Fact]
+    public void Folder_FailedDecrypt_DoesNotLeaveDeadStateWithoutMarker()
+    {
+        // 防止「锁着但没有标记」的死状态：既无法访问，又被 IsFolderEncrypted 判为未加密。
+        string dir = Path.Combine(_dir, "no_dead_state");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "a.txt"), "x");
+
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+
+        string marker = Path.Combine(dir, InPlaceEncryptionService.FolderLockFileName);
+        Assert.True(File.Exists(marker));
+        Assert.True(InPlaceEncryptionService.IsFileEncrypted(marker));
+        Assert.True(InPlaceEncryptionService.IsFolderEncrypted(dir));
+
+        Assert.Throws<CryptographicException>(
+            () => InPlaceEncryptionService.DecryptFolder(dir, OtherPassword));
+
+        // 失败后标记必须仍存在且仍有效，状态可被正确识别
+        Assert.True(File.Exists(marker), "解密失败后标记不得丢失。");
+        Assert.True(InPlaceEncryptionService.IsFolderEncrypted(dir),
+            "解密失败后仍应被正确识别为已加密（不可出现判定不了的死状态）。");
+    }
+
+    [Fact]
+    public void Folder_EncryptEmptyFolder_ThenDecrypt_Succeeds()
+    {
+        // 空文件夹：无文件可加密，但标记与锁定仍须成立并能正常解锁。
+        string dir = Path.Combine(_dir, "empty_folder");
+        Directory.CreateDirectory(dir);
+
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+        Assert.True(InPlaceEncryptionService.IsFolderEncrypted(dir));
+
+        InPlaceEncryptionService.DecryptFolder(dir, ValidPassword);
+        Assert.False(InPlaceEncryptionService.IsFolderEncrypted(dir));
+    }
+
+    [Fact]
+    public void Folder_EncryptTwice_Throws()
+    {
+        string dir = Path.Combine(_dir, "encrypt_twice");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "a.txt"), "x");
+
+        InPlaceEncryptionService.EncryptFolder(dir, ValidPassword);
+        Assert.Throws<InvalidOperationException>(
+            () => InPlaceEncryptionService.EncryptFolder(dir, ValidPassword));
+    }
+
+    [Fact]
+    public void Folder_DecryptNotEncrypted_Throws()
+    {
+        string dir = Path.Combine(_dir, "not_encrypted");
+        Directory.CreateDirectory(dir);
+
+        Assert.Throws<InvalidOperationException>(
+            () => InPlaceEncryptionService.DecryptFolder(dir, ValidPassword));
+    }
+
+    [Fact]
+    public void RecoveryCodes_AreUniqueAndWellFormed()
+    {
+        var seen = new HashSet<string>();
+        for (int i = 0; i < 200; i++)
+        {
+            string code = InPlaceEncryptionService.GenerateRecoveryCode();
+            Assert.Equal(29, code.Length);                       // 6×4 + 5 个连字符
+            Assert.Equal(5, code.Count(c => c == '-'));
+            Assert.DoesNotContain('0', code);                    // 排除易混淆字符
+            Assert.DoesNotContain('O', code);
+            Assert.DoesNotContain('1', code);
+            Assert.DoesNotContain('I', code);
+            Assert.True(seen.Add(code), "恢复码不应重复。");
+        }
+    }
+
+    // ================= 迭代次数提升后的旧文件兼容性 =================
+
+    [Fact]
+    public void File_LegacyIterationCount_StillDecrypts()
+    {
+        // 模拟「升级前用 200,000 次迭代加密」的文件：
+        // 升级到 600,000 次后，旧文件必须仍能解开，否则用户数据等于损坏。
+        string file = Path.Combine(_dir, "legacy_iter.bin");
+        string plaintext = "legacy iterations 机密";
+        byte[] plain = Encoding.UTF8.GetBytes(plaintext);
+        string rec = InPlaceEncryptionService.NormalizeRecoveryCode("TEST-RECOVERY-CODE-1234");
+
+        File.WriteAllBytes(file,
+            BuildLegacyVer2Payload(plain, ValidPassword, rec, PasswordHasher.LegacyIterations));
+
+        Assert.True(InPlaceEncryptionService.VerifyFilePassword(file, ValidPassword));
+        Assert.True(InPlaceEncryptionService.VerifyFilePassword(file, rec, isRecovery: true));
+
+        InPlaceEncryptionService.DecryptFile(file, ValidPassword);
+        Assert.Equal(plaintext, File.ReadAllText(file));
+    }
+
+    [Fact]
+    public void File_VerifyPassword_RejectsTamperedVerifier()
+    {
+        // 验证器被篡改时，必须安全返回 false，而不是抛异常或误判通过。
+        string file = Path.Combine(_dir, "tampered.bin");
+        File.WriteAllText(file, "data");
+        InPlaceEncryptionService.EncryptFile(file, ValidPassword);
+
+        byte[] bytes = File.ReadAllBytes(file);
+        Assert.True(bytes.Length > 60);
+
+        // 破坏 pwdVerifier 前若干字节（保持长度合法）
+        for (int i = 0; i < 4; i++) bytes[8 + 16 + i] ^= 0xFF;
+        string broken = Path.Combine(_dir, "broken.bin");
+        File.WriteAllBytes(broken, bytes);
+
+        Assert.False(InPlaceEncryptionService.VerifyFilePassword(broken, ValidPassword));
+        Assert.Throws<CryptographicException>(
+            () => InPlaceEncryptionService.DecryptFile(broken, ValidPassword));
     }
 }

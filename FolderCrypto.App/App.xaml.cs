@@ -17,23 +17,54 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+
+        // 全局退出兜底：无论进程以何种方式结束（托盘退出、任务管理器结束、
+        // 系统关机、未处理异常……），都尽力把临时解锁的明文重新加密。
+        //
+        // ⚠️ 注意 ProcessExit 的时间预算很有限（尤其关机场景），且此时
+        // 工作线程可能已被回收，所以这里只做「尽力而为」的一次尝试；
+        // 真正可靠的是托盘「退出程序」路径上的 ExitWithCleanup（有明确超时预算）。
+        // 任何未完成项都会保留在 temp-unlock.json 中，由下次启动的
+        // CleanupOnStartup 继续处理，不会丢失。
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            try { TemporaryUnlockService.ReencryptAllOnExit(TimeSpan.FromSeconds(5)); }
+            catch { }
+        };
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // 标记 XAML 已真正启动，供 Program 的启动日志判断是否「静默退出」。
+        StartupLog.ReachedOnLaunched = true;
+        StartupLog.Trace("OnLaunched 进入");
+
         // 记录 UI 线程的调度器，供单实例转发指令时把窗口创建投递到 UI 线程。
         _uiDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
         // 初始化并应用主题（浅色/深色/自定义）。
+        StartupLog.Trace("ThemeService.Init");
         ThemeService.Init();
         // 初始化应用设置（如是否显示系统托盘图标）。
+        StartupLog.Trace("SettingsService.Init");
         SettingsService.Init();
-        // 兜底：扫描临时解密清单，自动重新加密残留的明文
-        TemporaryUnlockService.CleanupOnStartup();
+        // 后台预热「Windows Hello 凭据是否已存在」的缓存，
+        // 使后续 UI 构造函数能同步读取而不必在 UI 线程发起跨进程调用。
+        StartupLog.Trace("HelloSecretStore.WarmUpCache");
+        HelloSecretStore.WarmUpCache();
+        // 兜底：扫描临时解密清单，自动重新加密残留的明文。
+        // ⚠️ 必须放到后台线程：它会访问 Windows 凭据管理器（PasswordVault，跨进程 WinRT 调用），
+        // 在 UI 线程同步执行会拖慢甚至卡住启动。此处不等待完成即可继续启动流程。
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try { TemporaryUnlockService.CleanupOnStartup(); } catch { }
+        });
 
         // 若已经有实例在运行，则把命令行指令转发给已有实例并退出，实现单实例。
+        StartupLog.Trace("SingleInstanceManager");
         if (SingleInstanceManager.TryForwardOrBecomePrimary(Environment.GetCommandLineArgs(), OnShellCommand))
         {
+            StartupLog.Trace("检测到已有实例 -> 转发后退出");
             // 必须真正退出应用，否则 WinUI 的调度循环会一直运行，造成“无窗口的悬挂进程，
             // 再次打开时因单实例又转发到该悬挂进程，导致看起来无法打开主程序”。
             try { if (Microsoft.UI.Xaml.Application.Current != null) Microsoft.UI.Xaml.Application.Current.Exit(); } catch { }
@@ -43,6 +74,7 @@ public partial class App : Application
         string[] cloneArgs = Environment.GetCommandLineArgs();
         var cmd = CommandLineParser.ParseArgs(cloneArgs, skipExecutable: true);
         bool autostart = cloneArgs.Any(a => string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase));
+        StartupLog.Trace($"命令解析完成: cmd={cmd?.Kind.ToString() ?? "null"}, autostart={autostart}");
 
         if (cmd != null)
         {
@@ -102,17 +134,57 @@ public partial class App : Application
                 "Folder Crypto 文件夹加密",
                 icon ?? string.Empty,
                 onOpenSettings: ShowMainWindow,
-                onExit: () => { try { if (Microsoft.UI.Xaml.Application.Current != null) Microsoft.UI.Xaml.Application.Current.Exit(); } catch { } });
+                onExit: ExitWithCleanup);
         }
         catch (Exception ex) { TrayIconService.Log($"EnterBackgroundTray 异常: {ex}"); }
+    }
+
+    /// <summary>
+    /// 退出应用，并在退出前先把仍处于临时解锁（明文）状态的项重新加密。
+    ///
+    /// ⚠️ 没有这一步，用户从托盘「退出程序」后：
+    /// 监测循环随进程消失 → 明文永久留在磁盘上，且不会被任何机制发现，
+    /// 直到用户下次启动应用才由 CleanupOnStartup 兜底（可能很久之后）。
+    ///
+    /// 收尾在后台线程执行并有超时，避免大文件加密把退出流程卡住。
+    /// </summary>
+    private static void ExitWithCleanup()
+    {
+        try
+        {
+            // 用较短超时保证"点了退出就退出"；未完成的条目保留在清单里，
+            // 下次启动会继续处理，不会丢。
+            var task = System.Threading.Tasks.Task.Run(() =>
+            {
+                try { TemporaryUnlockService.ReencryptAllOnExit(TimeSpan.FromSeconds(20)); }
+                catch (Exception ex) { TrayIconService.Log($"退出收尾异常: {ex}"); }
+            });
+
+            // 最多再等 25 秒，超时也照常退出（剩余项交由下次启动兜底）
+            task.Wait(TimeSpan.FromSeconds(25));
+        }
+        catch { }
+
+        try { if (Microsoft.UI.Xaml.Application.Current != null) Microsoft.UI.Xaml.Application.Current.Exit(); } catch { }
     }
 
     /// <summary>根据命令类型创建并显示对应的输入窗口（加密=密码+确认；解密=密码/恢复码），并返回该窗口。</summary>
     private static Microsoft.UI.Xaml.Window ShowPrompt(ShellCommand cmd)
     {
-        var w = cmd.Kind == CommandKind.Encrypt
-            ? FolderCrypto.App.Dialogs.PromptWindow.ShowEncrypt(cmd.Path)
-            : FolderCrypto.App.Dialogs.PromptWindow.ShowDecrypt(cmd.Path);
+        Microsoft.UI.Xaml.Window? w = cmd.Kind switch
+        {
+            CommandKind.Encrypt => FolderCrypto.App.Dialogs.PromptWindow.ShowEncrypt(cmd.Path),
+            CommandKind.Decrypt => FolderCrypto.App.Dialogs.PromptWindow.ShowDecrypt(cmd.Path),
+            // 文件夹空白处「加密选中」：没有明确目标项，交给主窗口让用户自行选择。
+            _ => null,
+        };
+
+        if (w == null)
+        {
+            ShowMainWindow();
+            return _mainWindow!;
+        }
+
         ActivateToForeground(w);
         return w;
     }

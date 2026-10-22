@@ -6,18 +6,50 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>FolderCrypto.App</RootNamespace>
     <!-- 与 Package.appxmanifest / wix 保持一致；软件更新检查以程序集版本为准 -->
-    <Version>1.0.15.7</Version>
+    <Version>1.1.5</Version>
     <ApplicationIcon>Assets\LockIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
-    <WindowsPackageType>MSIX</WindowsPackageType>
-    <!-- 自包含：将 Windows App SDK 运行时与 .NET 运行时一并打包进 MSIX，
-         目标机器无需预装 WindowsAppRuntime 框架包即可安装运行。 -->
+    <!-- ===================== 部署方式：未打包（unpackaged） =====================
+         本程序通过 MSI 安装到 %ProgramFiles%\FolderCrypto（见 wix\build-msi.ps1），
+         安装目录内没有 AppxManifest，进程也不具备包身份。
+
+         历史上的错误：这里曾设为 MSIX，导致 XAML 编译器按「有包身份」生成入口，
+         既不做 Windows App SDK Bootstrap 引导，又在无包身份时让 Application.Start
+         失败后直接 exit(0)，表现为「双击或右键菜单点击后毫无反应」。
+
+         现在改为 None，并在 Program.cs 里显式调用 Bootstrap.TryInitialize。
+         若将来改为真正的 MSIX 打包，请把此处改回 MSIX 并删除自定义 Main
+         （或保留 Main，Bootstrap 会因已引导而自动跳过）。
+         ====================================================================== -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- 使用 Program.cs 中的自定义 Main（负责 Bootstrap 引导与错误落盘） -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <!-- 自包含：将 Windows App SDK 运行时与 .NET 运行时一并打包，目标机器无需预装 -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
+
+    <!-- ===================== 裁剪（Trimming）策略 =====================
+         历史问题：MSI 构建曾使用 -p:PublishTrimmed=true -p:TrimMode=full，
+         导致 Core 中「未被静态引用」的类型被整段移除
+         （如 ContainerService、PasswordHasher.Verify/Derive、PasswordPolicy.DescribeRules）。
+         当时恰好没有代码调用它们，所以没暴露；但一旦新增任何通过
+         反射 / DI / JSON 反序列化访问的成员，就会「开发环境正常、安装版
+         抛 MissingMethodException」，且极难排查。
+
+         现在的策略：
+           - PublishTrimmed 保持 false（默认）：MSI 构建脚本不再传入 full 裁剪，
+             保证程序集完整，杜绝上述隐性崩溃。
+           - 若将来确需减小体积而重新开启裁剪，务必同时：
+               * 使用 TrimMode=partial（而非 full），并
+               * 把需要保留的类型登记到 TrimmerRootDescriptor（见下方注释），
+                 或对关键类型加 [DynamicDependency] / [DynamicallyAccessedMembers]。
+         ============================================================== -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>

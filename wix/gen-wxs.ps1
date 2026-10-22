@@ -133,10 +133,21 @@ foreach ($v in $verbs) {
         # 不再用 CommandStateHandler（旧机制在 Win10 下会显示为灰色不可用且加密/解密同时出现）。
         $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key`" Name=`"ExplorerCommandHandler`" Type=`"string`" Value=`"$clsid`" />`n"
     }
-    else {
-        # 静态动词（如文件夹空白处）：用 \command 直接启动。
-        $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key\command`" Type=`"string`" Value=`"$cmd`" />`n"
-    }
+
+    # =======================================================================
+    # 静态 \command 兜底 —— 所有菜单项都写（含带 ExplorerCommandHandler 的）
+    #
+    # 原因：部分第三方文件资源管理器（如 Pulse、PowerToys 上下文菜单）
+    # 不完全支持 IExplorerCommand，会忽略 ExplorerCommandHandler。
+    # 此时若没有 \command，菜单项就没有可执行命令：
+    #   - 「加密」「解密」两个静态项同时出现（因为没有动态显隐）；
+    #   - 点击后没有任何反应，外壳甚至回退成「打开文件夹」并报 1155
+    #     （没有应用程序与此操作的指定文件有关联）。
+    #
+    # Explorer 会优先用 ExplorerCommandHandler 做动态显隐；
+    # 忽略它的外壳则回退到 \command 直接启动主程序。两者可以并存。
+    # =======================================================================
+    $values += "        <RegistryValue Root=`"HKCU`" Key=`"$key\command`" Type=`"string`" Value=`"$cmd`" />`n"
 
     $ctxMenuXml += @"
     <Component Id="$cid" Guid="$(New-MsiGuid "ctx-$rootShell-$verb")" Directory="INSTALLFOLDER">
