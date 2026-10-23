@@ -53,12 +53,17 @@ Get-ChildItem $shellDir -Recurse -Filter '*.pdb' | Remove-Item -Force
 # --- native overlay DLL + overlay icons → same shell-support dir ---
 $nativeDll = Join-Path $root 'FolderCrypto.ShellNative\x64\Release\FolderCrypto.ShellNative.dll'
 if (Test-Path $nativeDll) { Copy-Item $nativeDll (Join-Path $shellDir 'FolderCrypto.ShellNative.dll') -Force }
-# overlay-lock.ico 与 unlock.ico：从 ShellNative 源码目录取（每次构建前由 gen-icons.ps1 重生成）
+# overlay-lock.ico / unlock.ico / toggle-key.ico：从 ShellNative 源码目录取
+# （每次构建前由 gen-icons.ps1 重生成）
+#   overlay-lock.ico = 红色锁：覆盖层角标（加密）
+#   unlock.ico       = 绿色解锁：历史遗留，保留兼容
+#   toggle-key.ico   = 中性钥匙：「加密 / 解密」共享菜单项图标
 $icoSrc = @{
     'overlay-lock.ico' = (Join-Path $root 'FolderCrypto.ShellNative\overlay-lock.ico')
     'unlock.ico'       = (Join-Path $root 'FolderCrypto.ShellNative\unlock.ico')
+    'toggle-key.ico'   = (Join-Path $root 'FolderCrypto.ShellNative\toggle-key.ico')
 }
-foreach ($ico in 'overlay-lock.ico','unlock.ico') {
+foreach ($ico in 'overlay-lock.ico','unlock.ico','toggle-key.ico') {
     $p = $icoSrc[$ico]
     if (Test-Path $p) { Copy-Item $p (Join-Path $shellDir $ico) -Force } else { Write-Warning "图标缺失: $p" }
 }

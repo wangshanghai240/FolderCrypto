@@ -175,8 +175,15 @@ Write-Host '==> regenerating red lock / green unlock icons (Python + Pillow) ...
 & $python (Join-Path $root 'gen_red_lock_icon.py')   | Out-Null
 & $python (Join-Path $root 'gen_green_unlock_icon.py') | Out-Null
 
+# 中性「钥匙」图标：供「加密 / 解密」共享菜单项使用。
+# 合并后的菜单项只能配一张静态图标，无法随目标状态变化，
+# 因此用与状态无关的钥匙图形（红锁会让人误以为一定是加密）。
+Write-Host '==> regenerating neutral toggle-key icon ...'
+& $python (Join-Path $root 'gen_toggle_key_icon.py') | Out-Null
+
 $lockSrc   = Join-Path $root 'FolderCrypto.ShellNative\overlay-lock.ico'
 $unlockSrc = Join-Path $root 'FolderCrypto.ShellNative\unlock.ico'
+$keySrc    = Join-Path $root 'FolderCrypto.ShellNative\toggle-key.ico'
 
 foreach ($t in @(
     'FolderCrypto.ShellNative\x64\Release\overlay-lock.ico',
@@ -187,4 +194,13 @@ foreach ($t in @(
 Copy-Item $unlockSrc (Join-Path $root 'packages\unlock.ico') -Force
 Write-Host '  unlock-> packages\unlock.ico'
 
-Write-Host 'DONE: red/green icons regenerated.'
+foreach ($t in @(
+    'FolderCrypto.ShellNative\x64\Release\toggle-key.ico',
+    'packages\toggle-key.ico')) {
+    if (Test-Path $keySrc) {
+        Copy-Item $keySrc (Join-Path $root $t) -Force
+        Write-Host "  key   -> $t"
+    }
+}
+
+Write-Host 'DONE: red/green/key icons regenerated.'

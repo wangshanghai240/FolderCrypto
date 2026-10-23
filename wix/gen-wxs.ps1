@@ -102,6 +102,10 @@ $decryptStateClsid = '{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}'
 $appExe           = '[INSTALLFOLDER]FolderCrypto.App.exe'
 $lockIcon        = '[INSTALLFOLDER]shell-support\overlay-lock.ico'
 $unlockIcon      = '[INSTALLFOLDER]shell-support\unlock.ico'
+# 共享菜单项「加密 / 解密」使用中性钥匙图标：
+#   合并后图标只能静态指定，无法随目标状态变化，
+#   用红锁会误导用户以为「一定是加密」。
+$toggleIcon      = '[INSTALLFOLDER]shell-support\toggle-key.ico'
 
 # ===========================================================================
 # 右键菜单注册（写 HKCU\Software\Classes，无需管理员）。
@@ -127,8 +131,8 @@ $unlockIcon      = '[INSTALLFOLDER]shell-support\unlock.ico'
 
 # 每个条目: rootShell, verb, label, arg, icon(可为空), stateHandlerClsid(可为空)
 $verbs = @(
-    @('*\shell',                   'FolderCryptoToggle', '加密 / 解密', 'toggle',       $lockIcon,   ''),
-    @('Directory\shell',           'FolderCryptoToggle', '加密 / 解密', 'toggle',       $lockIcon,   ''),
+    @('*\shell',                   'FolderCryptoToggle', '加密 / 解密', 'toggle',       $toggleIcon, ''),
+    @('Directory\shell',           'FolderCryptoToggle', '加密 / 解密', 'toggle',       $toggleIcon, ''),
     @('Directory\Background\shell','FolderCryptoEncrypt','加密选中',    'encrypt-here', $lockIcon,   '')
 )
 

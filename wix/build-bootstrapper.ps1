@@ -1,4 +1,4 @@
-# ===========================================================================
+﻿# ===========================================================================
 #  FolderCrypto - Build self-developed .NET (WPF) install bootstrapper
 #  Chains: build+sign MSI -> embed into bootstrapper -> publish self-contained
 #          single-file WPF exe -> sign -> copy to packages.

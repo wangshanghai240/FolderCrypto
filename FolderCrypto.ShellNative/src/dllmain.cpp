@@ -5,7 +5,60 @@
 // midl 生成的 GUID 定义（CLSID_OverlayHandler / LIBID_FolderCryptoShellNativeLib）
 #include "../FolderCryptoShellNative_i.c"
 
+// ---------------------------------------------------------------------------
+// 诊断日志（用于排查覆盖层在 Win11 24H2+ 不显示的问题）
+//
+// 覆盖层不显示时无法从外部判断「shell 根本没调用」还是「调用了但被拒绝」。
+// 这里把关键调用写入 %TEMP%\FolderCrypto.Overlay.log，
+// 日志为追加写且失败静默，不影响正常功能。
+// 排查完成后可通过删除 FOLDCRYPTO_OVERLAY_LOG 定义关闭。
+// ---------------------------------------------------------------------------
+#define FOLDCRYPTO_OVERLAY_LOG 1
+
+#if FOLDCRYPTO_OVERLAY_LOG
+static void OverlayLog(const wchar_t* fmt, ...)
+{
+    wchar_t path[MAX_PATH] = { 0 };
+    DWORD n = ::GetTempPathW(MAX_PATH, path);
+    if (n == 0 || n >= MAX_PATH) return;
+    wcscat_s(path, MAX_PATH, L"FolderCrypto.Overlay.log");
+
+    wchar_t msg[2048] = { 0 };
+    va_list ap;
+    va_start(ap, fmt);
+    _vsnwprintf_s(msg, _countof(msg), _TRUNCATE, fmt, ap);
+    va_end(ap);
+
+    // 追加一行（带时间戳）
+    SYSTEMTIME st;
+    ::GetLocalTime(&st);
+    wchar_t line[2300] = { 0 };
+    _snwprintf_s(line, _countof(line), _TRUNCATE,
+        L"[%02d:%02d:%02d.%03d] pid=%lu %s\r\n",
+        st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+        ::GetCurrentProcessId(), msg);
+
+    HANDLE h = ::CreateFileW(path, FILE_APPEND_DATA,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    DWORD written = 0;
+    ::WriteFile(h, line, (DWORD)(wcslen(line) * sizeof(wchar_t)), &written, nullptr);
+    ::CloseHandle(h);
+}
+#define OVLOG(...) OverlayLog(__VA_ARGS__)
+#else
+#define OVLOG(...) ((void)0)
+#endif
+
 // 覆盖层处理器类
+//
+// ⚠️ Win11 24H2+ 兼容性加固：
+//   24H2 起 shell 对 COM 扩展的校验显著变严，实现不完整会被「静默拒绝」，
+//   表现为覆盖层不显示且没有任何错误提示。因此这里显式：
+//     * 声明不支持聚合（DECLARE_NOT_AGGREGATABLE）
+//     * 在 COM map 中显式登记 IUnknown
+//     * 显式实现 QueryInterface 的健壮性（见下方 COverlayHandler::QueryInterface 注释）
 class ATL_NO_VTABLE COverlayHandler :
     public CComObjectRootEx<CComSingleThreadModel>,
     public CComCoClass<COverlayHandler, &CLSID_COverlayHandler>,
@@ -15,9 +68,11 @@ public:
     COverlayHandler() = default;
 
     DECLARE_NO_REGISTRY()
+    DECLARE_NOT_AGGREGATABLE(COverlayHandler)
 
     BEGIN_COM_MAP(COverlayHandler)
-        COM_INTERFACE_ENTRY(IShellIconOverlayIdentifier)
+        COM_INTERFACE_ENTRY_IID(IID_IShellIconOverlayIdentifier, IShellIconOverlayIdentifier)
+        COM_INTERFACE_ENTRY_IID(IID_IUnknown, IShellIconOverlayIdentifier)
     END_COM_MAP()
 
     // IShellIconOverlayIdentifier
@@ -34,8 +89,13 @@ OBJECT_ENTRY_AUTO(CLSID_COverlayHandler, COverlayHandler)
 // ---------------------------------------------------------------------------
 STDMETHODIMP COverlayHandler::GetOverlayInfo(LPWSTR pwszIconFile, int cchMax, int* pIndex, DWORD* pdwFlags)
 {
+    OVLOG(L"GetOverlayInfo called cchMax=%d", cchMax);
+
     if (pwszIconFile == nullptr || cchMax <= 0)
+    {
+        OVLOG(L"GetOverlayInfo -> E_INVALIDARG");
         return E_INVALIDARG;
+    }
 
     // 取得本 DLL 所在目录
     wchar_t szDll[MAX_PATH] = { 0 };
@@ -54,18 +114,29 @@ STDMETHODIMP COverlayHandler::GetOverlayInfo(LPWSTR pwszIconFile, int cchMax, in
     wchar_t szIcon[MAX_PATH] = { 0 };
     swprintf_s(szIcon, MAX_PATH, L"%s\\overlay-lock.ico", szDir);
 
+    // 图标文件必须真实存在，否则返回失败，让 shell 明确跳过本覆盖层，
+    // 而不是拿到一个无效路径后「静默不画」。
+    if (GetFileAttributesW(szIcon) == INVALID_FILE_ATTRIBUTES)
+    {
+        OVLOG(L"GetOverlayInfo -> ERROR_FILE_NOT_FOUND (icon missing: %s)", szIcon);
+        return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    }
+
+    // 缓冲区不足：明确返回 E_INVALIDARG（调用方会按规范处理）
+    size_t len = wcslen(szIcon);
+    if (len + 1 > (size_t)cchMax)
+    {
+        OVLOG(L"GetOverlayInfo -> E_INVALIDARG (buffer too small: need %zu, have %d)", len + 1, cchMax);
+        return E_INVALIDARG;
+    }
+
+    // 先写输出参数，再复制字符串，保证任何返回路径下参数都合法
     if (pIndex)      *pIndex = 0;
     if (pdwFlags)    *pdwFlags = ISIOI_ICONFILE | ISIOI_ICONINDEX;
 
-    if (pwszIconFile)
-    {
-        // 复制到调用方缓冲区（含终止符）
-        size_t len = wcslen(szIcon);
-        size_t toCopy = (len < (size_t)(cchMax - 1)) ? len : (size_t)(cchMax - 1);
-        memcpy(pwszIconFile, szIcon, toCopy * sizeof(wchar_t));
-        pwszIconFile[toCopy] = L'\0';
-    }
+    memcpy(pwszIconFile, szIcon, (len + 1) * sizeof(wchar_t));
 
+    OVLOG(L"GetOverlayInfo -> S_OK icon=%s flags=%lu", szIcon, pdwFlags ? *pdwFlags : 0);
     return S_OK;
 }
 
@@ -73,6 +144,7 @@ STDMETHODIMP COverlayHandler::GetPriority(int* pPriority)
 {
     // 优先级 0 为最高；希望覆盖层稳定显示。
     if (pPriority) *pPriority = 0;
+    OVLOG(L"GetPriority -> 0");
     return S_OK;
 }
 
@@ -80,12 +152,18 @@ STDMETHODIMP COverlayHandler::GetPriority(int* pPriority)
 STDMETHODIMP COverlayHandler::IsMemberOf(LPCWSTR pwszPath, DWORD /*dwAttrib*/)
 {
     if (pwszPath == nullptr)
+    {
+        OVLOG(L"IsMemberOf(null) -> S_FALSE");
         return S_FALSE;
+    }
 
     // 文件夹：检查是否存在 .folderlock 标记
     DWORD attr = ::GetFileAttributesW(pwszPath);
     if (attr == INVALID_FILE_ATTRIBUTES)
+    {
+        OVLOG(L"IsMemberOf(%s) -> S_FALSE (attr invalid)", pwszPath);
         return S_FALSE;
+    }
 
     if (attr & FILE_ATTRIBUTE_DIRECTORY)
     {
@@ -96,7 +174,12 @@ STDMETHODIMP COverlayHandler::IsMemberOf(LPCWSTR pwszPath, DWORD /*dwAttrib*/)
             swprintf_s(marker, MAX_PATH, L"%s\\%s", pwszPath, L".folderlock");
             DWORD mAttr = ::GetFileAttributesW(marker);
             if (mAttr != INVALID_FILE_ATTRIBUTES && (mAttr & FILE_ATTRIBUTE_HIDDEN))
+            {
+                OVLOG(L"IsMemberOf(%s) -> S_OK (locked folder)", pwszPath);
                 return S_OK;   // 锁定文件夹
+            }
+            OVLOG(L"IsMemberOf(%s) -> S_FALSE (dir, marker attr=0x%lX)", pwszPath,
+                  mAttr == INVALID_FILE_ATTRIBUTES ? 0xFFFFFFFF : mAttr);
         }
         return S_FALSE;
     }
@@ -118,6 +201,7 @@ STDMETHODIMP COverlayHandler::IsMemberOf(LPCWSTR pwszPath, DWORD /*dwAttrib*/)
     }
     ::CloseHandle(hFile);
 
+    OVLOG(L"IsMemberOf(%s) -> %s (file magic)", pwszPath, matched ? L"S_OK" : L"S_FALSE");
     return matched ? S_OK : S_FALSE;
 }
 

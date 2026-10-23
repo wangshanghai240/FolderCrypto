@@ -27,17 +27,22 @@ public static class ContextMenuRegistrar
     public const string LegacyEncryptVerb = "FolderCryptoEncrypt";
     public const string LegacyDecryptVerb = "FolderCryptoDecrypt";
 
-    /// <summary>安装右键菜单。exePath 为主应用的完整路径；iconDir 为图标所在目录（含 overlay-lock.ico 与 unlock.ico）。</summary>
+    /// <summary>安装右键菜单。exePath 为主应用的完整路径；iconDir 为图标所在目录
+    /// （含 overlay-lock.ico、unlock.ico 与 toggle-key.ico）。</summary>
     public static void Install(string exePath, string iconDir)
     {
         string lockIcon = Path.Combine(iconDir, "overlay-lock.ico");
+        // 共享菜单项使用中性钥匙图标：合并后图标静态指定，
+        // 无法随目标状态变化，用红锁会误导用户以为「一定是加密」。
+        string toggleIcon = Path.Combine(iconDir, "toggle-key.ico");
+        if (!File.Exists(toggleIcon)) toggleIcon = lockIcon;   // 兼容旧安装目录
 
         // 先清理旧版遗留的双菜单项，避免升级后出现重复/失效项
         UninstallLegacy();
 
         // 文件与文件夹：单一共享菜单项，程序自行判定加密还是解密
-        RegisterVerb(@"*\shell", ToggleVerb, "加密 / 解密", exePath, "toggle", iconPath: lockIcon);
-        RegisterVerb(@"Directory\shell", ToggleVerb, "加密 / 解密", exePath, "toggle", iconPath: lockIcon);
+        RegisterVerb(@"*\shell", ToggleVerb, "加密 / 解密", exePath, "toggle", iconPath: toggleIcon);
+        RegisterVerb(@"Directory\shell", ToggleVerb, "加密 / 解密", exePath, "toggle", iconPath: toggleIcon);
 
         // 文件夹空白处：加密选中项（交由主窗口选择）
         RegisterVerb(@"Directory\Background\shell", LegacyEncryptVerb, "加密选中", exePath, "encrypt-here", iconPath: lockIcon);
