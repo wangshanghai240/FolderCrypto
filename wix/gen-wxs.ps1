@@ -103,13 +103,33 @@ $appExe           = '[INSTALLFOLDER]FolderCrypto.App.exe'
 $lockIcon        = '[INSTALLFOLDER]shell-support\overlay-lock.ico'
 $unlockIcon      = '[INSTALLFOLDER]shell-support\unlock.ico'
 
+# ===========================================================================
+# 右键菜单注册（写 HKCU\Software\Classes，无需管理员）。
+#
+# 设计变更（v1.1.6）：改用「单一共享菜单项」而不是「加密 + 解密两个项」。
+#
+# 原因：部分第三方文件资源管理器（如 Pulse）只枚举注册表静态 \shell\verb，
+#   既不支持 IExplorerCommand 动态显隐（ExplorerCommandHandler），
+#   也不支持 AppliesTo / SubCommands 过滤。实测：
+#     - pulse_shell.exe 二进制中不存在 IExplorerCommand 相关字符串；
+#     - 移除全部 \command 后，Pulse 依然显示两个菜单项；
+#     - 在 context_menu.json 写 items['v:解密']={hidden:true} 也无效。
+#   也就是说，「加密」「解密」两个独立静态项在 Pulse 中必然同时出现，
+#   无法靠 COM 提供状态来区分。
+#
+# 解决方案：只注册一个菜单项「加密 / 解密」，点击后由程序检测目标状态，
+#   未加密则弹加密窗口，已加密则弹解密窗口（参数 toggle）。
+#   这样在资源管理器、Pulse 以及任何外壳中表现都正确且一致。
+#
+# 同时保留 ExplorerCommandHandler 用于资源管理器的图标/提示优化，
+# 但没有它也不影响功能（Pulse 会忽略它）。
+# ===========================================================================
+
 # 每个条目: rootShell, verb, label, arg, icon(可为空), stateHandlerClsid(可为空)
 $verbs = @(
-    @('*\shell',               'FolderCryptoEncrypt',    '加密',     'encrypt',         $lockIcon,   $encryptStateClsid),
-    @('*\shell',               'FolderCryptoDecrypt',    '解密',     'decrypt',         $unlockIcon, $decryptStateClsid),
-    @('Directory\shell',       'FolderCryptoEncrypt',    '加密',     'encrypt',         $lockIcon,   $encryptStateClsid),
-    @('Directory\shell',       'FolderCryptoDecrypt',    '解密',     'decrypt',         $unlockIcon, $decryptStateClsid),
-    @('Directory\Background\shell', 'FolderCryptoEncrypt', '加密选中', 'encrypt-here',    $lockIcon,   '')
+    @('*\shell',                   'FolderCryptoToggle', '加密 / 解密', 'toggle',       $lockIcon,   ''),
+    @('Directory\shell',           'FolderCryptoToggle', '加密 / 解密', 'toggle',       $lockIcon,   ''),
+    @('Directory\Background\shell','FolderCryptoEncrypt','加密选中',    'encrypt-here', $lockIcon,   '')
 )
 
 function To-FormattedPath([string]$p) { return $p }  # keep [INSTALLFOLDER] formatted as-is
@@ -194,13 +214,18 @@ $shellRegXml += @"
 "@
 $ctxRefs += "`n      <ComponentRef Id=`"ShellNativeCom`" />`n      <ComponentRef Id=`"OverlayReg`" />"
 
-# 保留卸载时用于清理传统/旧版遗留的 RemoveRegistryKey（FolderCrypto.Shell 运行过但未跟踪的键）
+# 卸载时清理。包含：当前使用的共享菜单项 + 历史版本遗留的「加密/解密」双项，
+# 确保从任意旧版本升级后都不会留下重复或失效的菜单项。
 $contextMenuKeys = @(
+    # 当前方案（v1.1.6+）：单一共享菜单项
+    'Software\Classes\*\shell\FolderCryptoToggle',
+    'Software\Classes\Directory\shell\FolderCryptoToggle',
+    'Software\Classes\Directory\Background\shell\FolderCryptoEncrypt',
+    # 历史遗留：v1.1.5 及更早的双菜单项
     'Software\Classes\*\shell\FolderCryptoEncrypt',
     'Software\Classes\*\shell\FolderCryptoDecrypt',
     'Software\Classes\Directory\shell\FolderCryptoEncrypt',
-    'Software\Classes\Directory\shell\FolderCryptoDecrypt',
-    'Software\Classes\Directory\Background\shell\FolderCryptoEncrypt'
+    'Software\Classes\Directory\shell\FolderCryptoDecrypt'
 )
 $cleanupRemoves = $contextMenuKeys | ForEach-Object {
     "        <RemoveRegistryKey Root=`"HKCU`" Key=`"$_`" Action=`"removeOnUninstall`" />"

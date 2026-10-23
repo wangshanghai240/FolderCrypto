@@ -175,6 +175,12 @@ public partial class App : Application
         {
             CommandKind.Encrypt => FolderCrypto.App.Dialogs.PromptWindow.ShowEncrypt(cmd.Path),
             CommandKind.Decrypt => FolderCrypto.App.Dialogs.PromptWindow.ShowDecrypt(cmd.Path),
+
+            // 共享菜单项：先检测目标当前状态，再决定弹哪个窗口。
+            // 这是为了兼容只枚举静态注册表动词、不支持 IExplorerCommand
+            // 动态显隐的第三方文件资源管理器（如 Pulse）。
+            CommandKind.Toggle => ShowTogglePrompt(cmd.Path),
+
             // 文件夹空白处「加密选中」：没有明确目标项，交给主窗口让用户自行选择。
             _ => null,
         };
@@ -187,6 +193,32 @@ public partial class App : Application
 
         ActivateToForeground(w);
         return w;
+    }
+
+    /// <summary>
+    /// 「加密/解密」共享菜单项：按目标的实际状态决定动作。
+    /// 已加密（含 .folderlock 文件夹、FCENC000 文件、FOLDERCR 容器）→ 解密；
+    /// 否则 → 加密。
+    /// </summary>
+    private static Microsoft.UI.Xaml.Window? ShowTogglePrompt(string path)
+    {
+        bool encrypted;
+        try
+        {
+            encrypted = InPlaceEncryptionService.IsEncrypted(path) || ContainerService.IsContainer(path);
+        }
+        catch (Exception ex)
+        {
+            StartupLog.Trace($"Toggle 状态检测异常({path}): {ex.Message}");
+            // 检测失败时默认按「加密」处理，至少给出可见反馈而不是什么都不做。
+            encrypted = false;
+        }
+
+        StartupLog.Trace($"Toggle: {path} -> {(encrypted ? "已加密，执行解密" : "未加密，执行加密")}");
+
+        return encrypted
+            ? FolderCrypto.App.Dialogs.PromptWindow.ShowDecrypt(path)
+            : FolderCrypto.App.Dialogs.PromptWindow.ShowEncrypt(path);
     }
 
     /// <summary>激活窗口并强制带到前台（当主程序已在任务栏时，确保右键弹窗显示到用户屏幕）。</summary>

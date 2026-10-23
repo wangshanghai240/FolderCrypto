@@ -7,45 +7,58 @@ namespace FolderCrypto.Shell;
 /// 采用静态命令动词（而非 COM IContextMenu），启动主应用并传入参数，
 /// 简单可靠，无进程内 COM 兼容性问题。
 ///
-/// 注册结构：
-///   HKCU\Software\Classes\*\shell\FolderCryptoEncrypt\command = "app.exe" encrypt "%1"
-///   HKCU\Software\Classes\*\shell\FolderCryptoDecrypt\command = "app.exe" decrypt "%1"
-///   HKCU\Software\Classes\Directory\shell\FolderCryptoEncrypt\command = ... (文件夹)
-///   以及 Directory\shell\FolderCryptoDecrypt
+/// 注册结构（v1.1.6+ 单一共享菜单项）：
+///   HKCU\Software\Classes\*\shell\FolderCryptoToggle         \command = "app.exe" toggle "%1"
+///   HKCU\Software\Classes\Directory\shell\FolderCryptoToggle \command = "app.exe" toggle "%1"
+///   HKCU\Software\Classes\Directory\Background\shell\FolderCryptoEncrypt\command = "app.exe" encrypt-here "%1"
+///
+/// 为什么不再用「加密 + 解密」两个独立项：
+///   部分第三方文件资源管理器（如 Pulse）只枚举静态 \shell\verb，
+///   不支持 IExplorerCommand 动态显隐，也不支持 AppliesTo/SubCommands。
+///   两个静态项必然同时出现且无法靠 COM 状态区分。
+///   改为单一菜单项 + 程序内状态判定（toggle），在所有外壳中表现一致。
 /// </summary>
 public static class ContextMenuRegistrar
 {
-    public const string EncryptVerb = "FolderCryptoEncrypt";
-    public const string DecryptVerb = "FolderCryptoDecrypt";
+    /// <summary>共享菜单项动词（加密/解密二合一）。</summary>
+    public const string ToggleVerb = "FolderCryptoToggle";
 
-    // 右键菜单命令处理器 CLSID（原生 DLL 实现 IExplorerCommand）
-    private const string EncryptStateHandlerClsid = "{F8A2B000-1234-4A5B-9C6D-7E8F9A0B1C2D}"; // 未加密时显示“加密”
-    private const string DecryptStateHandlerClsid = "{F8A2C100-1234-4A5B-9C6D-7E8F9A0B1C2D}"; // 已加密时显示“解密”
+    /// <summary>历史遗留动词（v1.1.5 及更早），用于升级/卸载时清理。</summary>
+    public const string LegacyEncryptVerb = "FolderCryptoEncrypt";
+    public const string LegacyDecryptVerb = "FolderCryptoDecrypt";
 
     /// <summary>安装右键菜单。exePath 为主应用的完整路径；iconDir 为图标所在目录（含 overlay-lock.ico 与 unlock.ico）。</summary>
     public static void Install(string exePath, string iconDir)
     {
-        string encryptIcon = Path.Combine(iconDir, "overlay-lock.ico");
-        string decryptIcon = Path.Combine(iconDir, "unlock.ico");
+        string lockIcon = Path.Combine(iconDir, "overlay-lock.ico");
 
-        // 文件
-        RegisterVerb(@"*\shell", EncryptVerb, "加密", exePath, "encrypt", EncryptStateHandlerClsid, encryptIcon);
-        RegisterVerb(@"*\shell", DecryptVerb, "解密", exePath, "decrypt", DecryptStateHandlerClsid, decryptIcon);
-        // 文件夹
-        RegisterVerb(@"Directory\shell", EncryptVerb, "加密", exePath, "encrypt", EncryptStateHandlerClsid, encryptIcon);
-        RegisterVerb(@"Directory\shell", DecryptVerb, "解密", exePath, "decrypt", DecryptStateHandlerClsid, decryptIcon);
-        // 文件夹空白处（仅加密选中项对话框，暂不做状态判断）
-        RegisterVerb(@"Directory\Background\shell", EncryptVerb, "加密选中", exePath, "encrypt-here", iconPath: encryptIcon);
+        // 先清理旧版遗留的双菜单项，避免升级后出现重复/失效项
+        UninstallLegacy();
+
+        // 文件与文件夹：单一共享菜单项，程序自行判定加密还是解密
+        RegisterVerb(@"*\shell", ToggleVerb, "加密 / 解密", exePath, "toggle", iconPath: lockIcon);
+        RegisterVerb(@"Directory\shell", ToggleVerb, "加密 / 解密", exePath, "toggle", iconPath: lockIcon);
+
+        // 文件夹空白处：加密选中项（交由主窗口选择）
+        RegisterVerb(@"Directory\Background\shell", LegacyEncryptVerb, "加密选中", exePath, "encrypt-here", iconPath: lockIcon);
     }
 
     /// <summary>卸载右键菜单。</summary>
     public static void Uninstall()
     {
-        DeleteVerb(@"*\shell", EncryptVerb);
-        DeleteVerb(@"*\shell", DecryptVerb);
-        DeleteVerb(@"Directory\shell", EncryptVerb);
-        DeleteVerb(@"Directory\shell", DecryptVerb);
-        DeleteVerb(@"Directory\Background\shell", EncryptVerb);
+        DeleteVerb(@"*\shell", ToggleVerb);
+        DeleteVerb(@"Directory\shell", ToggleVerb);
+        DeleteVerb(@"Directory\Background\shell", LegacyEncryptVerb);
+        UninstallLegacy();
+    }
+
+    /// <summary>清理 v1.1.5 及更早版本遗留的「加密」「解密」独立菜单项。</summary>
+    private static void UninstallLegacy()
+    {
+        DeleteVerb(@"*\shell", LegacyEncryptVerb);
+        DeleteVerb(@"*\shell", LegacyDecryptVerb);
+        DeleteVerb(@"Directory\shell", LegacyEncryptVerb);
+        DeleteVerb(@"Directory\shell", LegacyDecryptVerb);
     }
 
     private static void RegisterVerb(string shellPath, string verb, string label, string exePath, string arg, string? handlerClsid = null, string? iconPath = null)

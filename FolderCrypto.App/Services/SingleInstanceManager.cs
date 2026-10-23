@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
@@ -28,7 +28,6 @@ public static class SingleInstanceManager
 
     private static Mutex? _mutex;
     private static Action<string[]>? _onCommand;
-    private static bool _ownsMutex;
 
     /// <summary>
     /// 尝试成为主实例；若存在「活动的」主实例，则把 args 转发给主实例并返回 true（调用方应退出）。
@@ -55,7 +54,6 @@ public static class SingleInstanceManager
 
         if (acquired)
         {
-            _ownsMutex = true;
             _ = Task.Run(ListenLoop);
             return false;
         }
@@ -77,7 +75,6 @@ public static class SingleInstanceManager
             // 悬挂实例被回收，锁归我们。
         }
 
-        _ownsMutex = true;
         _ = Task.Run(ListenLoop);
         return false;
     }

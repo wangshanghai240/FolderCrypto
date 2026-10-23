@@ -9,6 +9,17 @@ public enum CommandKind
     Decrypt,
     /// <summary>从文件夹空白处触发：让用户在程序内选择要加密的项。</summary>
     EncryptHere,
+    /// <summary>
+    /// 共享菜单项（推荐）：由程序自行检测路径状态，
+    /// 未加密则加密，已加密则解密。
+    ///
+    /// 为什么需要这个模式：
+    ///   部分第三方文件资源管理器（如 Pulse）只枚举注册表里的静态 \shell\verb，
+    ///   既不支持 IExplorerCommand 动态显隐，也不支持 AppliesTo / SubCommands 过滤。
+    ///   于是「加密」「解密」两个静态项会同时出现，无法靠 COM 提供状态来区分。
+    ///   改用单一菜单项 + 运行时判定，即可在所有外壳中获得正确行为。
+    /// </summary>
+    Toggle,
 }
 
 /// <summary>一条待处理指令。</summary>
@@ -56,6 +67,10 @@ public static class CommandLineParser
             // 或（未打包运行时）静默退出。这里补齐。
             "encrypt-here" or "encrypthere" or "encrypt_here" or "eh"
                 => new ShellCommand(CommandKind.EncryptHere, path),
+
+            // 共享菜单项：由程序检测状态后决定加密还是解密。
+            "toggle" or "t" or "encrypt-or-decrypt"
+                => new ShellCommand(CommandKind.Toggle, path),
 
             _ => null
         };

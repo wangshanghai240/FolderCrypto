@@ -1,4 +1,4 @@
-﻿# ===========================================================================
+# ===========================================================================
 #  FolderCrypto - Build self-developed .NET (WPF) install bootstrapper
 #  Chains: build+sign MSI -> embed into bootstrapper -> publish self-contained
 #          single-file WPF exe -> sign -> copy to packages.
@@ -31,13 +31,22 @@ function Sign-File([string]$path) {
 Write-Host '==> 1/5 building + signing MSI ...'
 powershell -ExecutionPolicy Bypass -File (Join-Path $root 'wix\build-msi.ps1')
 
-# 2) pick the newest MSI and derive version
-$msi = Get-ChildItem (Join-Path $root 'packages\FolderCrypto-Setup-*.msi') |
-       Where-Object { $_.Name -notmatch 'wixpdb' } |
-       Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $msi) { throw '未找到 MSI 产物，请先构建 MSI。' }
-$version = '1.0.0'
-if ($msi.Name -match 'FolderCrypto-Setup-(\d+\.\d+\.\d+(?:\.\d+)?)') { $version = $matches[1] }
+# 2) 选取 MSI：必须与当前 Package.appxmanifest 的版本号一致。
+#    早期实现按「修改时间最新」取，一旦某次 MSI 构建失败，就会静默取到旧版本，
+#    打出「版本号不符」的安装包却毫无提示。现在改为按版本号精确匹配并严格校验。
+$manifestPath = Join-Path $root 'FolderCrypto.App\Package.appxmanifest'
+$expectedVer = $null
+if ((Get-Content $manifestPath -Raw) -match 'Version="(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?"') {
+    $expectedVer = "$($matches[1]).$($matches[2]).$($matches[3])"
+}
+if (-not $expectedVer) { throw "无法从 Package.appxmanifest 解析版本号：$manifestPath" }
+
+$expectedMsi = Join-Path $root "packages\FolderCrypto-Setup-$expectedVer-x64.msi"
+if (-not (Test-Path $expectedMsi)) {
+    throw "未找到与当前版本匹配的 MSI：$expectedMsi`n请先确认 wix\build-msi.ps1 构建成功（版本 $expectedVer）。"
+}
+$msi = Get-Item $expectedMsi
+$version = $expectedVer
 Write-Host "   using MSI: $($msi.Name)  (v$version)"
 
 # 3) embed the MSI into the bootstrapper project (build-bootstrapper embeds it)
