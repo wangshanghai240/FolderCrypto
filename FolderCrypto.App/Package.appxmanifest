@@ -4,13 +4,16 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap3 desktop rescap">
+  IgnorableNamespaces="uap uap3 desktop com desktop4 desktop5 rescap">
 
   <Identity
     Name="FolderCrypto.App"
-    Publisher="CN=FolderCrypto"
-    Version="1.1.7" />
+    Publisher="CN=FolderCrypto 文件夹加密"
+    Version="1.1.9" />
 
   <Properties>
     <DisplayName>Folder Crypto 文件夹加密</DisplayName>
@@ -42,12 +45,27 @@
             <desktop:ExecutionAlias Alias="foldercrypto.exe" />
           </uap3:AppExecutionAlias>
         </uap3:Extension>
+        <!-- 一级右键菜单：IExplorerCommand 实现，显示为 Windows 11 主菜单项 -->
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="FolderCrypto commands">
+              <com:Class Id="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" Path="FolderCrypto.Menu.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="Directory">
+              <desktop5:Verb Id="FolderCryptoToggleModern" Clsid="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
       </Extensions>
     </Application>
   </Applications>
 
   <Capabilities>
+    <Capability Name="internetClient" />
     <rescap:Capability Name="runFullTrust" />
-    <uap:Capability Name="internetClient" />
   </Capabilities>
 </Package>

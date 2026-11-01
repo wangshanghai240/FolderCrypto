@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FolderCrypto —— Sparse MSIX 清单（用于把「加密 / 解密」放到 Windows 11 一级右键菜单）。
+
+  为什么需要它：
+    Windows 11 的「一级（主）右键菜单」只对**有包身份（MSIX）**的应用开放
+    desktop4:fileExplorerContextMenus 扩展。未打包的 Win32 程序无论怎么写注册表，
+    都只能出现在「显示更多选项（Shift+F10）」的经典菜单里。
+
+  本 list 采用 **sparse（稀疏）包**：
+    - 包内只放清单 + 小图标（Assets）；
+    - 真正的程序文件（FolderCrypto.App.exe / FolderCrypto.Menu.dll）用
+      uap10:AllowExternalContent 指到 MSI 已安装的目录（-ExternalLocation）；
+    这样既保留现有 MSI + WPF 安装界面，又能获得一级菜单。
+
+  注意：
+    - Identity/Publisher 必须与签名证书 Subject 完全一致：CN=FolderCrypto 文件夹加密
+    - Version 必须是 4 段（由 build-sparse-msix.ps1 用 __VERSION__ 占位替换）
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 desktop desktop4 desktop5 com rescap">
+
+  <Identity
+    Name="FolderCrypto.SparseMenu"
+    Publisher="CN=FolderCrypto 文件夹加密"
+    Version="__VERSION__" />
+
+  <Properties>
+    <DisplayName>FolderCrypto 右键菜单</DisplayName>
+    <PublisherDisplayName>FolderCrypto</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <!-- 稀疏包关键：允许引用包外（已安装目录）的文件 -->
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="zh-CN" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App" Executable="FolderCrypto.App.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="FolderCrypto 右键菜单"
+        Description="FolderCrypto 一级右键菜单项"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- COM 服务：IExplorerCommand 实现（FolderCrypto.Menu.dll，位于外部内容目录） -->
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="FolderCrypto commands">
+              <com:Class Id="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" Path="FolderCrypto.Menu.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+        <!-- 一级右键菜单：目录项 -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="Directory">
+              <desktop5:Verb Id="FolderCryptoToggleModern" Clsid="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

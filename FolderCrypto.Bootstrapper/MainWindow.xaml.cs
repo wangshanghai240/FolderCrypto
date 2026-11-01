@@ -95,6 +95,11 @@ public partial class MainWindow : Window
             if (result.Success)
             {
                 SetStatus(result.Message, success: true);
+
+                // 注册 Windows 11 一级右键菜单（sparse MSIX + 证书信任）。
+                // best-effort：失败也不影响安装结果，经典右键菜单仍可用。
+                try { SparseMenuInstaller.RegisterBestEffort(dir.Length > 0 ? dir : null); } catch { }
+
                 FinishInstall();
             }
             else

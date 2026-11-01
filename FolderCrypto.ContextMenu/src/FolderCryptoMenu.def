@@ -1,0 +1,4 @@
+LIBRARY FolderCrypto.Menu
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE

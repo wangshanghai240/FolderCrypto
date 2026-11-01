@@ -312,6 +312,18 @@ $ctxRefs
       <ComponentRef Id="DesktopShortcut" />
       <ComponentRef Id="ContextMenuCleanup" />
     </Feature>
+
+    <!-- 卸载时移除「按用户注册」的一级右键菜单 sparse 包。
+         perMachine 的 MSI 卸载以 SYSTEM 运行，无法直接删某个用户的注册，
+         故用 -AllUsers 遍历所有用户移除；Return=ignore 确保清理失败也不阻塞卸载。
+         仅在“真正卸载”时触发（升级时 UPGRADINGPRODUCTCODE 已设置，跳过，由新版本重新注册）。 -->
+    <CustomAction Id="RemoveSparseMenuPkg"
+                  Directory="SystemFolder"
+                  ExeCommand="[SystemFolder]WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;Get-AppxPackage -AllUsers -Name FolderCrypto.SparseMenu | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="RemoveSparseMenuPkg" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
   </Package>
 
   <Fragment>

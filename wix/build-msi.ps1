@@ -69,6 +69,29 @@ foreach ($ico in 'overlay-lock.ico','unlock.ico','toggle-key.ico') {
 }
 Write-Host "  shell-support staged: $((Get-ChildItem $shellDir -File).Count) files"
 
+# 2.5) 构建 Sparse MSIX（一级右键菜单所需的包身份），并连同证书一起打进安装目录。
+#      稀疏包让应用被识别为“包应用”，desktop4:fileExplorerContextMenus 才会生效，
+#      「加密 / 解密」出现在 Windows 11 一级右键菜单，而不是“更多选项”里。
+#      程序文件仍用本 MSI 安装目录中的 FolderCrypto.App.exe / FolderCrypto.Menu.dll。
+Write-Host '==> 2.5 building sparse context-menu package ...'
+try {
+    powershell -ExecutionPolicy Bypass -File (Join-Path $root 'wix\build-sparse-msix.ps1') -AssetSource (Join-Path $publish 'Assets') -PublishDir $publish | Out-Null
+} catch {
+    Write-Warning "sparse msix 构建失败：$($_.Exception.Message). 一级菜单将不可用（经典菜单不受影响）"
+}
+$sparseSrc = Get-ChildItem (Join-Path $root 'packages\FolderCrypto.SparseMenu-*-x64.msix') -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime | Select-Object -Last 1
+if ($sparseSrc) {
+    $sparseStage = Join-Path $stage 'sparse'
+    New-Item -ItemType Directory -Force -Path $sparseStage | Out-Null
+    Copy-Item $sparseSrc.FullName $sparseStage -Force
+    $cerSrc = Join-Path $root 'packages\FolderCrypto.cer'
+    if (Test-Path $cerSrc) { Copy-Item $cerSrc $sparseStage -Force }
+    Write-Host "  sparse staged: $($sparseSrc.Name)"
+} else {
+    Write-Warning '未找到 sparse msix，一级右键菜单将不可用'
+}
+
 # 3) generate wxs and build msi
 Write-Host '==> 3/4 generating wxs + wix build ...'
 powershell -ExecutionPolicy Bypass -File (Join-Path $root 'wix\gen-wxs.ps1') -SourceDir $stage -Out $wxs | Out-Null

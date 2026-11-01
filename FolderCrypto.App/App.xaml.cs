@@ -60,6 +60,13 @@ public partial class App : Application
             try { TemporaryUnlockService.CleanupOnStartup(); } catch { }
         });
 
+        // 一级右键菜单自愈：确保当前用户已注册 sparse 包。
+        // 覆盖“跨账户提权安装时安装器无法为实际用户注册”的情形；后台执行、best-effort。
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try { SparseMenuRegistrar.EnsureRegistered(); } catch { }
+        });
+
         // 若已经有实例在运行，则把命令行指令转发给已有实例并退出，实现单实例。
         StartupLog.Trace("SingleInstanceManager");
         if (SingleInstanceManager.TryForwardOrBecomePrimary(Environment.GetCommandLineArgs(), OnShellCommand))
