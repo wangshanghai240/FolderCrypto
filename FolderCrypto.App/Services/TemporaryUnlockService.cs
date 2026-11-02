@@ -689,7 +689,19 @@ public static class TemporaryUnlockService
                 handled = true; // 路径已不存在，视为已清理
             }
 
-            if (!handled) remaining.Add(path);
+            if (handled) continue;
+
+            // 未能立即重新加密（很可能仍被占用，或该条目来自已退出的旧进程）。
+            // 关键修复：为它启动后台监测，空闲后自动重新加密；
+            // 否则只在“下次启动”再试一次，被长期占用/跨进程残留的明文会永远不加密。
+            if (password != null)
+            {
+                if (File.Exists(path))
+                    StartMonitor(path, ct => MonitorFileAsync(path, password, DateTime.UtcNow, ct));
+                else if (Directory.Exists(path))
+                    StartMonitor(path, ct => MonitorFolderAsync(path, password, DateTime.UtcNow, ct));
+            }
+            remaining.Add(path);   // 监测成功后会 RemoveManifest；在此之前保留在清单中
         }
 
         // 保留未能处理的条目（例如仅有恢复码），下一次启动继续尝试，
