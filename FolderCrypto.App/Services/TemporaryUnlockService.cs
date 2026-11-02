@@ -153,11 +153,24 @@ public static class TemporaryUnlockService
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "FolderCrypto", "temp-unlock.json");
 
+    /// <summary>写诊断日志到 %LOCALAPPDATA%\FolderCrypto\debug.log（前缀 [TempUnlock]）。</summary>
+    private static void Log(string msg)
+    {
+        try
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FolderCrypto");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "debug.log"), $"{DateTime.Now:HH:mm:ss.fff} [TempUnlock] {msg}{Environment.NewLine}");
+        }
+        catch { }
+    }
+
     /// <summary>临时解密一个文件并打开；监测到文件不再被占用后自动重新加密。</summary>
     public static void TempDecryptFile(string path, string password, IProgress<int>? progress = null)
     {
         InPlaceEncryptionService.DecryptFile(path, password, null, progress);
         AddManifest(path);
+        Log($"临时解密(文件)完成，开始监测: {path}");
         // 记住本次临时解锁所用的密码，供退出时立即重新加密使用。
         // （凭据本身也存在密码管理器里，但那需要 Windows Hello 才能取；
         //   退出时是无人值守流程，必须用内存中的副本。）
@@ -171,6 +184,7 @@ public static class TemporaryUnlockService
     {
         InPlaceEncryptionService.DecryptFolder(path, password, null, progress);
         AddManifest(path);
+        Log($"临时解密(文件夹)完成，开始监测: {path}");
         RememberSecret(path, password);
         StartMonitor(path, ct => MonitorFolderAsync(path, password, DateTime.UtcNow, ct));
     }
@@ -374,6 +388,7 @@ public static class TemporaryUnlockService
 
                     if (DateTime.UtcNow - idleSince >= required)
                     {
+                        Log($"判定空闲->重加密(文件): {path} inUse={inUse} accessed={accessedRecently} elapsed={(DateTime.UtcNow - started).TotalSeconds:F0}s everInUse={everInUse}");
                         if (TryReencryptFile(path, password)) { RemoveManifest(path); return; }
                         consecutiveIdle = 0;   // 加密失败（可能又被打开），重新计数
                     }
@@ -444,6 +459,7 @@ public static class TemporaryUnlockService
                         + (everInUse ? HandleReleaseProtection : TimeSpan.Zero);
                     if (DateTime.UtcNow - idleSince >= required)
                     {
+                        Log($"判定空闲->重加密(文件夹): {path} inUse={inUse} accessed={accessedRecently} elapsed={(DateTime.UtcNow - started).TotalSeconds:F0}s everInUse={everInUse}");
                         if (TryReencryptFolder(path, password)) { RemoveManifest(path); return; }
                         consecutiveIdle = 0;
                     }
@@ -463,14 +479,14 @@ public static class TemporaryUnlockService
 
     private static bool TryReencryptFile(string path, string password)
     {
-        try { InPlaceEncryptionService.EncryptFile(path, password); return true; }
-        catch { return false; } // 可能又被打开发送到捕获循环，继续监测
+        try { Log($"重加密(文件)开始: {path}"); InPlaceEncryptionService.EncryptFile(path, password); Log($"重加密(文件)完成: {path}"); return true; }
+        catch (Exception ex) { Log($"重加密(文件)失败: {path} :: {ex.GetType().Name}: {ex.Message}"); return false; } // 可能又被打开发送到捕获循环，继续监测
     }
 
     private static bool TryReencryptFolder(string path, string password)
     {
-        try { InPlaceEncryptionService.EncryptFolder(path, password); return true; }
-        catch { return false; }
+        try { Log($"重加密(文件夹)开始: {path}"); InPlaceEncryptionService.EncryptFolder(path, password); Log($"重加密(文件夹)完成: {path}"); return true; }
+        catch (Exception ex) { Log($"重加密(文件夹)失败: {path} :: {ex.GetType().Name}: {ex.Message}"); return false; }
     }
 
     /// <summary>
