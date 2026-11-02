@@ -137,7 +137,7 @@ public partial class App : Application
                 }
                 else
                 {
-                    ExitWithCleanupCore(fromWindowClose: true); // 直接退出：先弹窗告知/确认并重新加密临时解锁项，再退出
+                    _ = HandleExitAsync(fromWindowClose: true); // 直接退出：先用 WinUI 对话框确认并重新加密临时解锁项，再退出
                 }
             };
 
@@ -223,7 +223,7 @@ public partial class App : Application
                 "Folder Crypto 文件夹加密",
                 icon ?? string.Empty,
                 onOpenSettings: ShowMainWindow,
-                onExit: ExitWithCleanup);
+                onExit: () => { _ = HandleExitAsync(fromWindowClose: false); });
         }
         catch (Exception ex) { TrayIconService.Log($"EnterBackgroundTray 异常: {ex}"); }
     }
@@ -237,75 +237,58 @@ public partial class App : Application
     ///
     /// 收尾在后台线程执行并有超时，避免大文件加密把退出流程卡住。
     /// </summary>
-    private static void ExitWithCleanup() => ExitWithCleanupCore(fromWindowClose: false);
-
     /// <summary>
-    /// 退出前收尾：若仍有临时解密（明文）项，先弹窗列出并确认，再重新加密并退出。
+    /// 退出程序（含退出前收尾）：若仍有临时解密（明文）项，先用 WinUI 对话框列出并确认；
+    /// 确认后重新加密再退出，取消则不退出。由托盘「退出」与「关闭主窗口→直接退出」调用。
     /// </summary>
-    /// <param name="fromWindowClose">true 表示由「关闭主窗口→直接退出」触发（取消退出时需重新显示窗口）。</param>
-    private static void ExitWithCleanupCore(bool fromWindowClose)
+    private static async System.Threading.Tasks.Task HandleExitAsync(bool fromWindowClose)
     {
         try
         {
             var pending = TemporaryUnlockService.GetPendingPaths();
-            if (pending.Count > 0 && !ConfirmReencryptOnExit(pending))
+            if (pending.Count > 0)
             {
-                // 用户选择取消退出
-                if (fromWindowClose && _mainWindow != null)
+                // WinUI 的 ContentDialog 需要可见窗口提供 XamlRoot：必要时创建/显示主窗口承载对话框
+                var host = _mainWindow;
+                if (host == null) { ShowMainWindow(); host = _mainWindow; }
+                else
                 {
-                    try { _mainWindow.AppWindow.Show(); } catch { }
-                    try { _mainWindow.Activate(); } catch { }
+                    try { host!.AppWindow.Show(); } catch { }
+                    try { host!.Activate(); } catch { }
                 }
-                return;   // 不退出
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("以下文件/文件夹仍处于「临时解密（明文）」状态：");
+                sb.AppendLine();
+                const int max = 200;
+                int shown = 0;
+                foreach (var p in pending)
+                {
+                    if (shown >= max) { sb.AppendLine($"…（其余 {pending.Count - shown} 项略）"); break; }
+                    sb.AppendLine("· " + p);
+                    shown++;
+                }
+                sb.AppendLine();
+                sb.AppendLine("退出前会尝试重新加密它们；正被其他程序占用（如正在播放/编辑）的会保留，下次启动时再处理。");
+
+                bool proceed = await DialogHelper.ConfirmAsync(
+                    host, "退出 FolderCrypto", sb.ToString(), "重新加密并退出", "取消");
+
+                if (!proceed)
+                    return;   // 取消退出（窗口已显示，用户可继续使用）
             }
 
-            // 用较短超时保证"点了退出就退出"；未完成的条目保留在清单里，
-            // 下次启动会继续处理，不会丢。
+            // 收尾：重新加密仍在清单中的临时解锁项（后台执行 + 超时，避免卡住退出）
             var task = System.Threading.Tasks.Task.Run(() =>
             {
                 try { TemporaryUnlockService.ReencryptAllOnExit(TimeSpan.FromSeconds(20)); }
                 catch (Exception ex) { TrayIconService.Log($"退出收尾异常: {ex}"); }
             });
-
-            // 最多再等 25 秒，超时也照常退出（剩余项交由下次启动兜底）
-            task.Wait(TimeSpan.FromSeconds(25));
+            await System.Threading.Tasks.Task.WhenAny(task, System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(25)));
         }
         catch { }
 
         try { if (Microsoft.UI.Xaml.Application.Current != null) Microsoft.UI.Xaml.Application.Current.Exit(); } catch { }
-    }
-
-    /// <summary>退出前弹窗列出仍处于临时解密（明文）状态的项，询问是否重新加密并退出。返回 false 表示取消退出。</summary>
-    private static bool ConfirmReencryptOnExit(System.Collections.Generic.List<string> pending)
-    {
-        try
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("以下文件/文件夹仍处于「临时解密（明文）」状态：");
-            sb.AppendLine();
-            const int max = 15;
-            int shown = 0;
-            foreach (var p in pending)
-            {
-                if (shown >= max) { sb.AppendLine($"… 等，共 {pending.Count} 项"); break; }
-                sb.AppendLine("· " + p);
-                shown++;
-            }
-            sb.AppendLine();
-            sb.AppendLine("退出前会尝试重新加密它们；正被其他程序占用（如正在播放/编辑）的会保留，下次启动时再处理。");
-            sb.AppendLine();
-            sb.Append("是否重新加密并退出？");
-
-            System.IntPtr owner = System.IntPtr.Zero;
-            try { if (_mainWindow != null) owner = WinRT.Interop.WindowNative.GetWindowHandle(_mainWindow); } catch { }
-
-            const uint MB_OKCANCEL = 0x00000001;
-            const uint MB_ICONWARNING = 0x00000030;
-            const uint MB_TOPMOST = 0x00040000;
-            int r = NativeMethods.MessageBoxW(owner, sb.ToString(), "FolderCrypto 退出", MB_OKCANCEL | MB_ICONWARNING | MB_TOPMOST);
-            return r == 1; // IDOK
-        }
-        catch { return true; } // 弹窗失败时默认继续退出，避免卡住
     }
 
     /// <summary>根据命令类型创建并显示对应的输入窗口（加密=密码+确认；解密=密码/恢复码），并返回该窗口。</summary>
@@ -595,9 +578,6 @@ public partial class App : Application
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
         internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-        internal static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
     }
 
     /// <summary>

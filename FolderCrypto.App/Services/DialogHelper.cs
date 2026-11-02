@@ -79,6 +79,38 @@ public static class DialogHelper
     public static async Task ShowError(Window? window, string message)
         => await ShowDialog(window, "错误", message);
 
+    /// <summary>
+    /// WinUI 风格的确认对话框（主按钮 + 关闭按钮）。返回 true 表示点了主按钮。
+    /// 无法获取 XamlRoot（无窗口）时返回 true，避免调用方卡住。
+    /// </summary>
+    public static async Task<bool> ConfirmAsync(Window? window, string title, string message,
+        string primaryText, string closeText = "取消")
+    {
+        return await RunSerializedAsync(async () =>
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = new ScrollViewer
+                {
+                    MaxHeight = 380,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 }
+                },
+                PrimaryButtonText = primaryText,
+                CloseButtonText = closeText,
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = window?.Content?.XamlRoot
+            };
+
+            if (dialog.XamlRoot == null)
+                return true;   // 无窗口无法弹窗，默认继续
+
+            var r = await dialog.ShowAsync();
+            return r == ContentDialogResult.Primary;
+        });
+    }
+
     private static async Task ShowDialog(Window? window, string title, string message)
     {
         await RunSerializedAsync(async () =>
