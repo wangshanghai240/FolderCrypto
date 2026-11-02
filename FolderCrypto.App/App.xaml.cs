@@ -88,17 +88,13 @@ public partial class App : Application
             // 从右键菜单启动（加密/解密）：直接弹出输入窗口（内容即表单），不显示主界面。
             _window = ShowPrompt(cmd);
 
-            // 关键：若本次弹窗启动了「临时解密」的后台监测，关闭窗口时不能直接退出进程，
-            // 否则监测随进程一起消失，文件/文件夹不会自动重新加密（只能等下次启动兜底）。
-            // 这里在窗口关闭时检查：若仍有未完成的临时解锁，就进入后台托盘常驻，
-            // 让监测继续运行，待文件空闲后自动重新加密。
+            // 若本次弹窗启动了「临时解密」的后台监测，关闭窗口时不能让进程退出，
+            // 否则监测随进程消失、不会自动重新加密。
+            // 注意：仅仅 EnterBackgroundTray（托盘消息窗口）无法阻止 WinUI 在最后一个
+            // Window 关闭后退出进程。因此这里在窗口“即将关闭”时拦截：仍有未完成临时解锁
+            // 就 Cancel 关闭 + 隐藏窗口（窗口对象仍在 → 进程存活），待全部重新加密完成后再关窗退出。
             if (_window != null)
-            {
-                _window.Closed += (_, _) =>
-                {
-                    try { if (TemporaryUnlockService.HasActiveUnlocks()) EnterBackgroundTray(); } catch { }
-                };
-            }
+                SetupTempUnlockKeepAlive(_window);
         }
         else if (autostart)
         {
@@ -134,6 +130,55 @@ public partial class App : Application
         }
         CurrentWindow = w;
         try { w.Activate(); } catch { }
+    }
+
+    /// <summary>
+    /// 为右键弹窗设置「临时解锁期间保活」：窗口被关闭时，若仍有未完成的临时解锁，
+    /// 则取消关闭并隐藏窗口（窗口对象仍在 → 进程存活，监测可继续运行），并显示托盘图标；
+    /// 待全部重新加密完成后，再真正关闭窗口、进程退出。
+    /// </summary>
+    private static void SetupTempUnlockKeepAlive(Window w)
+    {
+        try
+        {
+            var appWin = w.AppWindow;
+            bool forcedClose = false;
+
+            appWin.Closing += (s, e) =>
+            {
+                if (forcedClose) return;
+
+                bool pending;
+                try { pending = TemporaryUnlockService.HasActiveUnlocks(); } catch { pending = false; }
+                if (!pending) return;   // 没有待办 → 正常关闭，进程退出
+
+                e.Cancel = true;                          // 阻止关闭，保留窗口
+                try { appWin.Hide(); } catch { }          // 隐藏窗口（窗口对象仍在 → 进程存活）
+                try { EnterBackgroundTray(); } catch { }  // 显示托盘图标，提示后台仍在守护
+
+                // 后台轮询：所有临时解锁都重新加密完成后，真正关闭窗口（进程随后退出）
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (true)
+                        {
+                            bool still;
+                            try { still = TemporaryUnlockService.HasActiveUnlocks(); } catch { still = false; }
+                            if (!still) break;
+                            await System.Threading.Tasks.Task.Delay(2000).ConfigureAwait(false);
+                        }
+                        w.DispatcherQueue?.TryEnqueue(() =>
+                        {
+                            forcedClose = true;
+                            try { w.Close(); } catch { }
+                        });
+                    }
+                    catch { }
+                });
+            };
+        }
+        catch { }
     }
 
     /// <summary>进入后台托盘常驻模式（显示托盘图标；若已显示则幂等）。</summary>
