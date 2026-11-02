@@ -259,7 +259,7 @@ public:
         if (!ppszInfotip)
             return E_POINTER;
         *ppszInfotip = nullptr;
-        return SHStrDupW(L"对选中的文件夹加密或解密（FoldCrypto）", ppszInfotip);
+        return SHStrDupW(L"对选中的文件/文件夹加密或解密（FolderCrypto）", ppszInfotip);
     }
 
     // 关键：判断是否可点、是否隐藏。此处只做极轻量的检查。
@@ -278,34 +278,34 @@ public:
             return S_OK;
         }
 
-        // 只对文件夹生效；选中项里没有文件夹就隐藏。
+        // 对文件系统内的「文件 或 文件夹」都生效；其它（虚拟项、驱动器根）隐藏。
         if (psiItemArray)
         {
             DWORD count = 0;
             if (SUCCEEDED(psiItemArray->GetCount(&count)))
             {
-                bool hasFolder = false;
-                for (DWORD i = 0; i < count && !hasFolder; ++i)
+                bool hasEligible = false;
+                for (DWORD i = 0; i < count && !hasEligible; ++i)
                 {
                     CComPtr<IShellItem> psi;
                     if (FAILED(psiItemArray->GetItemAt(i, &psi)) || !psi)
                         continue;
 
-                    // 只接受文件系统内的文件夹；驱动器根目录由系统
-                    // 自身的"加密/解密"属性页处理，这里排除掉。
-                    SFGAOF attrs = SFGAO_FOLDER | SFGAO_FILESYSTEM;
+                    // 只接受文件系统内的项（文件或文件夹）；
+                    // 驱动器根目录由系统自身的属性页处理，这里排除。
+                    SFGAOF attrs = SFGAO_FILESYSTEM;
                     if (SUCCEEDED(psi->GetAttributes(attrs, &attrs)) &&
-                        (attrs & SFGAO_FOLDER) && (attrs & SFGAO_FILESYSTEM))
+                        (attrs & SFGAO_FILESYSTEM))
                     {
                         std::wstring p = GetItemPath(psi);
                         // 根目录形如 "C:\"，长度 3 且以冒号结尾
                         bool isDriveRoot = (p.size() == 3 && p[1] == L':' &&
                                             (p[2] == L'\\' || p[2] == L'/'));
                         if (!isDriveRoot)
-                            hasFolder = true;
+                            hasEligible = true;
                     }
                 }
-                if (!hasFolder)
+                if (!hasEligible)
                     *pCmdState = ECS_HIDDEN;
             }
         }
@@ -366,15 +366,21 @@ public:
             if (FAILED(psiItemArray->GetItemAt(i, &psi)) || !psi)
                 continue;
 
-            // 只处理文件夹，跳过普通文件，避免误触发
-            SFGAOF attrs = SFGAO_FOLDER;
+            // 文件与文件夹都处理（驱动器根除外）。
+            SFGAOF attrs = SFGAO_FILESYSTEM;
             if (FAILED(psi->GetAttributes(attrs, &attrs)))
                 continue;
-            if (!(attrs & SFGAO_FOLDER))
+            if (!(attrs & SFGAO_FILESYSTEM))
                 continue;
 
             std::wstring target = GetItemPath(psi);
             if (target.empty())
+                continue;
+
+            // 跳过驱动器根（形如 "C:\"）
+            bool isDriveRoot = (target.size() == 3 && target[1] == L':' &&
+                                (target[2] == L'\\' || target[2] == L'/'));
+            if (isDriveRoot)
                 continue;
 
             if (LaunchToggle(appPath, target))

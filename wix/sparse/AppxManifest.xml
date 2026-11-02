@@ -66,11 +66,16 @@
             </com:SurrogateServer>
           </com:ComServer>
         </com:Extension>
-        <!-- 一级右键菜单：目录项 -->
+        <!-- 一级右键菜单：文件 + 文件夹 -->
         <desktop4:Extension Category="windows.fileExplorerContextMenus">
           <desktop4:FileExplorerContextMenus>
+            <!-- 所有文件 -->
+            <desktop5:ItemType Type="*">
+              <desktop5:Verb Id="FolderCryptoToggleFile" Clsid="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" />
+            </desktop5:ItemType>
+            <!-- 文件夹 -->
             <desktop5:ItemType Type="Directory">
-              <desktop5:Verb Id="FolderCryptoToggleModern" Clsid="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" />
+              <desktop5:Verb Id="FolderCryptoToggleDir" Clsid="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" />
             </desktop5:ItemType>
           </desktop4:FileExplorerContextMenus>
         </desktop4:Extension>

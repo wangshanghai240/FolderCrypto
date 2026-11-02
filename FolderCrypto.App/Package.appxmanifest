@@ -13,7 +13,7 @@
   <Identity
     Name="FolderCrypto.App"
     Publisher="CN=FolderCrypto 文件夹加密"
-    Version="1.1.9" />
+    Version="1.1.10" />
 
   <Properties>
     <DisplayName>Folder Crypto 文件夹加密</DisplayName>
@@ -55,8 +55,11 @@
         </com:Extension>
         <desktop4:Extension Category="windows.fileExplorerContextMenus">
           <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="*">
+              <desktop5:Verb Id="FolderCryptoToggleFile" Clsid="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" />
+            </desktop5:ItemType>
             <desktop5:ItemType Type="Directory">
-              <desktop5:Verb Id="FolderCryptoToggleModern" Clsid="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" />
+              <desktop5:Verb Id="FolderCryptoToggleDir" Clsid="F8A2D000-1234-4A5B-9C6D-7E8F9A0B1C2D" />
             </desktop5:ItemType>
           </desktop4:FileExplorerContextMenus>
         </desktop4:Extension>
