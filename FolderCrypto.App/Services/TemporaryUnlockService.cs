@@ -601,6 +601,25 @@ public static class TemporaryUnlockService
         catch { return new List<string>(); }
     }
 
+    /// <summary>
+    /// 是否还有未完成的临时解锁：清单里仍有条目，或仍有监测循环在运行。
+    /// 用途：关闭「临时解密」窗口时，若仍有未完成项，需要让进程保持后台存活
+    /// （托盘常驻），继续监测并在文件空闲后自动重新加密；否则进程一退出，
+    /// 监测就消失，明文要等到下次启动才由 CleanupOnStartup 兜底。
+    /// </summary>
+    public static bool HasActiveUnlocks()
+    {
+        try
+        {
+            lock (ManifestLock)
+            {
+                if (ReadManifestUnlocked().Count > 0) return true;
+            }
+        }
+        catch { }
+        return !Monitors.IsEmpty;
+    }
+
     private static void WriteManifestUnlocked(List<string> list)
     {
         try

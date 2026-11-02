@@ -87,6 +87,18 @@ public partial class App : Application
         {
             // 从右键菜单启动（加密/解密）：直接弹出输入窗口（内容即表单），不显示主界面。
             _window = ShowPrompt(cmd);
+
+            // 关键：若本次弹窗启动了「临时解密」的后台监测，关闭窗口时不能直接退出进程，
+            // 否则监测随进程一起消失，文件/文件夹不会自动重新加密（只能等下次启动兜底）。
+            // 这里在窗口关闭时检查：若仍有未完成的临时解锁，就进入后台托盘常驻，
+            // 让监测继续运行，待文件空闲后自动重新加密。
+            if (_window != null)
+            {
+                _window.Closed += (_, _) =>
+                {
+                    try { if (TemporaryUnlockService.HasActiveUnlocks()) EnterBackgroundTray(); } catch { }
+                };
+            }
         }
         else if (autostart)
         {
