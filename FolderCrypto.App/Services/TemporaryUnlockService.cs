@@ -620,6 +620,16 @@ public static class TemporaryUnlockService
         return !Monitors.IsEmpty;
     }
 
+    /// <summary>返回当前仍处于临时解锁（待重新加密/明文）状态的路径快照。</summary>
+    public static List<string> GetPendingPaths()
+    {
+        try
+        {
+            lock (ManifestLock) { return ReadManifestUnlocked(); }
+        }
+        catch { return new List<string>(); }
+    }
+
     private static void WriteManifestUnlocked(List<string> list)
     {
         try
