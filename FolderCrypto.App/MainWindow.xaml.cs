@@ -25,6 +25,9 @@ public sealed partial class MainWindow : Window
     /// <summary>初始化阶段抑制「Windows Hello 解锁」开关事件，避免初始化时误触发。</summary>
     private bool _suppressHelloEvent = true;
 
+    /// <summary>初始化阶段抑制「关闭主窗口时最小化到托盘」开关事件，避免初始化时误触发。</summary>
+    private bool _suppressCloseToTrayEvent = true;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -51,6 +54,11 @@ public sealed partial class MainWindow : Window
         _suppressTrayIconEvent = true;
         ShowTrayIconSwitch.IsOn = SettingsService.ShowTrayIcon;
         _suppressTrayIconEvent = false;
+
+        // 关闭主窗口行为开关：按已保存设置初始化（抑制事件）
+        _suppressCloseToTrayEvent = true;
+        CloseToTraySwitch.IsOn = SettingsService.CloseToTray;
+        _suppressCloseToTrayEvent = false;
 
         // Windows Hello 解锁开关：按已保存设置初始化
         _suppressHelloEvent = true;
@@ -302,6 +310,15 @@ public sealed partial class MainWindow : Window
             // 关闭后立即隐藏托盘图标
             App.HideTrayIcon();
         }
+    }
+
+    // ---------- 关闭主窗口时的行为 ----------
+
+    /// <summary>开/关滑动开关：关闭主窗口时是最小化到托盘（后台常驻）还是直接退出程序。</summary>
+    private void OnCloseToTrayToggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressCloseToTrayEvent) return;
+        SettingsService.CloseToTray = CloseToTraySwitch.IsOn;
     }
 
     // ---------- Windows Hello 解锁 ----------

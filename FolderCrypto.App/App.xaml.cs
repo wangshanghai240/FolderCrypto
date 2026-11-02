@@ -118,15 +118,40 @@ public partial class App : Application
         if (w == null)
         {
             w = new MainWindow();
-            // 关闭主窗口时不退出应用，而是隐藏并进入「后台托盘常驻」，
-            // 保留托盘图标以便用户随时重新打开或退出。
+
+            // 关闭主窗口时的行为，由设置决定：
+            //   最小化到托盘（默认）：拦截关闭 + 隐藏窗口（窗口对象存活 → 进程常驻后台），
+            //                        托盘/监测继续工作，可随时从托盘重新打开。
+            //   直接退出：拦截默认关闭 → 隐藏窗口 → 先做退出收尾（重新加密临时解锁项）→ 退出进程。
+            // 注意：仅靠 EnterBackgroundTray 无法阻止 WinUI 在窗口关闭后退出进程，必须隐藏窗口保活。
+            var appWin = w.AppWindow;
+            appWin.Closing += (s, e) =>
+            {
+                bool toTray = SettingsService.CloseToTray && SettingsService.ShowTrayIcon;
+                e.Cancel = true;                    // 先拦截，避免窗口直接关闭导致进程退出
+                try { appWin.Hide(); } catch { }    // 隐藏窗口（窗口对象仍在 → 进程存活）
+
+                if (toTray)
+                {
+                    EnterBackgroundTray();          // 后台常驻，托盘图标可重新打开
+                }
+                else
+                {
+                    ExitWithCleanup();              // 直接退出：先重新加密临时解锁项，再退出（窗口已隐藏，无卡顿感）
+                }
+            };
+
             w.Closed += (win, e) =>
             {
                 _mainWindow = null;
                 CurrentWindow = null;
-                EnterBackgroundTray();
             };
             _mainWindow = w;
+        }
+        else
+        {
+            // 若窗口之前被「最小化到托盘」隐藏，重新打开时先显示出来。
+            try { w.AppWindow.Show(); } catch { }
         }
         CurrentWindow = w;
         try { w.Activate(); } catch { }

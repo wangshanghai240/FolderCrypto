@@ -21,6 +21,7 @@ public static class SettingsService
     private const string ConfigFileName = "settings.json";
 
     private static bool _showTrayIcon = true;   // 默认在系统托盘中显示图标
+    private static bool _closeToTray = true;     // 关闭主窗口时：true=最小化到托盘，false=直接退出
     private static string? _downloadDirectory;  // 更新包下载目录；为空表示使用系统「下载」文件夹
     private static bool _windowsHelloUnlock;    // 是否启用 Windows Hello 解锁
     private static string? _configPath;
@@ -35,6 +36,19 @@ public static class SettingsService
             EnsureLoaded();
             if (_showTrayIcon == value) return;
             _showTrayIcon = value;
+            Save();
+        }
+    }
+
+    /// <summary>关闭主窗口时的行为：true=最小化到系统托盘（后台常驻、先重新加密临时解锁项），false=直接退出程序。</summary>
+    public static bool CloseToTray
+    {
+        get { EnsureLoaded(); return _closeToTray; }
+        set
+        {
+            EnsureLoaded();
+            if (_closeToTray == value) return;
+            _closeToTray = value;
             Save();
         }
     }
@@ -85,6 +99,7 @@ public static class SettingsService
             var cfg = JsonSerializer.Deserialize(json, SettingsConfigJsonContext.Default.SettingsConfig);
             if (cfg == null) return;
             _showTrayIcon = cfg.ShowTrayIcon;
+            _closeToTray = cfg.CloseToTray;
             _downloadDirectory = string.IsNullOrWhiteSpace(cfg.DownloadDirectory) ? null : cfg.DownloadDirectory;
             _windowsHelloUnlock = cfg.WindowsHelloUnlock;
         }
@@ -104,6 +119,7 @@ public static class SettingsService
             var cfg = new SettingsConfig
             {
                 ShowTrayIcon = _showTrayIcon,
+                CloseToTray = _closeToTray,
                 DownloadDirectory = _downloadDirectory,
                 WindowsHelloUnlock = _windowsHelloUnlock
             };
@@ -118,6 +134,9 @@ public static class SettingsService
     internal sealed class SettingsConfig
     {
         public bool ShowTrayIcon { get; set; } = true;
+
+        /// <summary>关闭主窗口时是否最小化到系统托盘（true）。为 false 时直接退出程序。</summary>
+        public bool CloseToTray { get; set; } = true;
 
         /// <summary>更新安装包下载目录；为空表示使用系统「下载」文件夹。</summary>
         public string? DownloadDirectory { get; set; }

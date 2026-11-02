@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="FolderCrypto 文件夹加密" Manufacturer="FolderCrypto"
-           Version="1.1.12" UpgradeCode="{D2780C54-98D7-6A59-9749-86FC9194DFB1}"
+           Version="1.1.13" UpgradeCode="{D2780C54-98D7-6A59-9749-86FC9194DFB1}"
            Scope="perMachine" Compressed="yes">
     <MajorUpgrade DowngradeErrorMessage="已安装的版本更新，请勿降级。" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
@@ -1078,8 +1078,8 @@
     <Component Id="cmp_253" Directory="dir_77" Guid="{240B824B-C63B-4C3D-E5B4-C0A38882B744}">
       <File Id="file_253" Source="C:\Temp\_wix_src\sparse\FolderCrypto.cer" KeyPath="yes" />
     </Component>
-    <Component Id="cmp_254" Directory="dir_77" Guid="{9AA00FCF-120B-158C-8CB2-9AEF6FAD8601}">
-      <File Id="file_254" Source="C:\Temp\_wix_src\sparse\FolderCrypto.SparseMenu-1.1.12-x64.msix" KeyPath="yes" />
+    <Component Id="cmp_254" Directory="dir_77" Guid="{71DE38E7-C302-C6E3-589C-88E39A6765DA}">
+      <File Id="file_254" Source="C:\Temp\_wix_src\sparse\FolderCrypto.SparseMenu-1.1.13-x64.msix" KeyPath="yes" />
     </Component>
     <Component Id="cmp_255" Directory="dir_78" Guid="{25842007-5518-CC97-6125-94C523D929F9}">
       <File Id="file_255" Source="C:\Temp\_wix_src\sq-AL\Microsoft.ui.xaml.dll.mui" KeyPath="yes" />

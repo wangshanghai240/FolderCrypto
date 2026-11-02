@@ -247,6 +247,30 @@
                                                   Toggled="OnShowTrayIconToggled"/>
                                 </Grid>
 
+                                <!-- Grid 两列：关闭主窗口时最小化到托盘开关 -->
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Text="关闭主窗口时最小化到系统托盘" Style="{ThemeResource BodyStrongTextBlockStyle}"/>
+                                        <TextBlock x:Name="CloseToTrayStatusText"
+                                                   Text="开启：关闭主窗口时隐藏到托盘（后台继续运行，可随时从托盘重新打开）。关闭：关闭主窗口时直接退出程序（会先尝试把所有临时解密的文件重新加密）。"
+                                                   TextWrapping="Wrap"
+                                                   Style="{ThemeResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="CloseToTraySwitch"
+                                                  Grid.Column="1"
+                                                  MinWidth="54"
+                                                  VerticalAlignment="Center"
+                                                  IsTabStop="False"
+                                                  OnContent=""
+                                                  OffContent=""
+                                                  Toggled="OnCloseToTrayToggled"/>
+                                </Grid>
+
                                 <!-- Grid 两列：Windows Hello 解锁开关 -->
                                 <Grid ColumnSpacing="16">
                                     <Grid.ColumnDefinitions>
