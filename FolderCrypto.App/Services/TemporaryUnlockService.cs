@@ -566,10 +566,32 @@ public static class TemporaryUnlockService
     {
         foreach (var f in files)
         {
+            // 1) Restart Manager：能拿到持有句柄的进程
             var pids = GetUsingPids(f);
-            if (pids != null && pids.Count > 0) return true; // 仍有进程持有句柄
+            if (pids != null && pids.Count > 0) return true;
+
+            // 2) 独占打开探测（可靠）：只要有进程（如正在播放的播放器）持有句柄，
+            //    以 FileShare.None 打开必然失败 → 视为占用，绝不在播放中重新加密。
+            //    这一步弥补“NTFS 最后访问时间被系统关闭”导致无法靠访问时间判断播放的问题。
+            if (!CanOpenExclusive(f)) return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// 能否以“不共享”方式打开文件：能=当前无其它句柄占用；失败=有句柄占用或不可访问（保守视为占用）。
+    /// 可靠检测“文件正在被播放/使用”，不依赖 LastAccessTime（系统常默认关闭该更新）。
+    /// </summary>
+    private static bool CanOpenExclusive(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return true; // 已不存在：不据此阻挠（后续逻辑会清理）
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            return true;
+        }
+        catch (FileNotFoundException) { return true; }
+        catch { return false; }
     }
 
     // ---- 清单：供启动兜底扫描 ----
