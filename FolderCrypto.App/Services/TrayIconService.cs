@@ -33,6 +33,9 @@ public static class TrayIconService
 
     private static IntPtr _hwnd = IntPtr.Zero;
     private static IntPtr _icon = IntPtr.Zero;
+    private static IntPtr _genericIcon = IntPtr.Zero;   // 系统默认应用图标（共享，勿 Destroy）
+    private static string _iconPath = "";               // 期望的图标文件路径（用于失败后重试恢复）
+    private static bool _iconIsFallback;                 // 当前 _icon 是否为默认兜底图标
     private static bool _visible;
     private static bool _added;   // NIM_ADD 是否已成功（图标真实存在）
     private static IntPtr _prevWndProc = IntPtr.Zero;   // 子类化前保存的原 WndProc
@@ -73,6 +76,7 @@ public static class TrayIconService
         _onOpenSettings = onOpenSettings;
         _onExit = onExit;
         _tooltip = tooltip;
+        _iconPath = iconPath;
 
         Log($"Show: _visible={_visible}, _added={_added}, _hwnd=0x{_hwnd.ToInt64():X}");
 
@@ -85,13 +89,15 @@ public static class TrayIconService
             // 注册「任务栏重建」系统广播消息，Explorer 重启后托盘区重建时能自动重新添加图标。
             _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
 
-            // 加载托盘图标（32x32）
-            _icon = LoadImage(IntPtr.Zero, iconPath, 1 /*IMAGE_ICON*/, 32, 32, 0x0010 /*LR_LOADFROMFILE*/);
-            if (_icon == IntPtr.Zero)
-            {
-                _icon = LoadIcon(IntPtr.Zero, (IntPtr)32512 /*IDI_APPLICATION*/);
-            }
+            // 加载托盘图标（32x32，多级兜底：ico 文件 → ExtractIconEx(ico) → ExtractIconEx(exe) → 系统默认）
+            ReloadIcon();
             _visible = true;
+        }
+        else if (_iconIsFallback)
+        {
+            // 之前加载失败退化成了默认图标，本次调用尝试恢复真实图标（如文件/Explorer 就绪后）
+            ReloadIcon();
+            if (_added) ModifyIcon();
         }
 
         // 图标未真正加上时始终尝试（失败自动重试），保证开关开启后图标必然出现。
@@ -132,6 +138,8 @@ public static class TrayIconService
                     return;
                 }
                 if (_added) { StopRetry(); return; }
+                // 若之前图标加载失败退化为默认图标，重试时再次尝试恢复真实图标
+                if (_iconIsFallback) ReloadIcon();
                 var retryNid = BuildNid();
                 bool retryOk = Shell_NotifyIcon(NIM_ADD, ref retryNid);
                 Log($"NIM_ADD retry#{_retryCount} -> {retryOk} (err={Marshal.GetLastWin32Error()})");
@@ -188,7 +196,10 @@ public static class TrayIconService
         if (_hMenu != IntPtr.Zero) { DestroyMenu(_hMenu); _hMenu = IntPtr.Zero; }
         if (_hwnd != IntPtr.Zero) { DestroyWindow(_hwnd); _hwnd = IntPtr.Zero; }
         _prevWndProc = IntPtr.Zero;
+        // 释放从文件/模块加载的图标（默认共享图标不能 Destroy）
+        if (_icon != IntPtr.Zero && !_iconIsFallback) { try { DestroyIcon(_icon); } catch { } }
         _icon = IntPtr.Zero;
+        _iconIsFallback = false;
         Log("Hide");
     }
 
@@ -292,6 +303,97 @@ public static class TrayIconService
             : (_prevWndProc == IntPtr.Zero ? DefWindowProc(h, m, w, l) : CallWindowProc(_prevWndProc, h, m, w, l));
     };
 
+    /// <summary>
+    /// 加载托盘图标。按优先级多级兜底，保证「重装/升级后」即使外部 ico 文件瞬时不可用
+    /// 也能拿到正确的图标，而不是退化成系统默认图标：
+    /// 1) LoadImage 直接读取 Assets\LockIcon.ico（32x32）
+    /// 2) ExtractIconEx 从该 ico 文件提取
+    /// 3) ExtractIconEx 从当前运行 exe 的内嵌图标提取（exe 必然自带图标）
+    /// 4) 系统默认应用图标（标记为 fallback，后续会重试恢复）
+    /// </summary>
+    private static void ReloadIcon()
+    {
+        if (_icon != IntPtr.Zero && !_iconIsFallback && _icon != _genericIcon)
+        {
+            try { DestroyIcon(_icon); } catch { }
+        }
+        _icon = IntPtr.Zero;
+        _iconIsFallback = false;
+
+        if (!string.IsNullOrEmpty(_iconPath) && System.IO.File.Exists(_iconPath))
+        {
+            _icon = LoadImage(IntPtr.Zero, _iconPath, 1 /*IMAGE_ICON*/, 32, 32, 0x0010 /*LR_LOADFROMFILE*/);
+            if (_icon != IntPtr.Zero) { Log($"LoadImage(ico) ok: {_iconPath}"); return; }
+
+            _icon = ExtractIconFromFile(_iconPath, preferSmall: false);
+            if (_icon != IntPtr.Zero) { Log($"ExtractIconEx(ico) ok: {_iconPath}"); return; }
+
+            Log($"ico 图标加载失败: {_iconPath}");
+        }
+        else
+        {
+            Log($"ico 路径无效或不存在: '{_iconPath}'");
+        }
+
+        // 从运行中的 exe 提取内嵌图标（最稳妥，exe 一定带图标）
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exe))
+            {
+                _icon = ExtractIconFromFile(exe, preferSmall: false);
+                if (_icon != IntPtr.Zero) { Log($"ExtractIconEx(exe) ok: {exe}"); return; }
+            }
+        }
+        catch (Exception ex) { Log($"ExtractIconEx(exe) 异常: {ex.Message}"); }
+
+        // 最后退化到系统默认应用图标，并标记为 fallback（后续 Retry / 再次 Show 时会重试恢复）
+        if (_genericIcon == IntPtr.Zero)
+        {
+            _genericIcon = LoadIcon(IntPtr.Zero, (IntPtr)32512 /*IDI_APPLICATION*/);
+        }
+        _icon = _genericIcon;
+        _iconIsFallback = true;
+        Log("图标加载全部失败，暂用系统默认图标（将在重试时恢复）");
+    }
+
+    /// <summary>用 NIM_MODIFY 刷新当前托盘图标的图标（用于图标恢复后即时生效，无需删除重加）。</summary>
+    private static void ModifyIcon()
+    {
+        if (!_visible || _hwnd == IntPtr.Zero || !_added) return;
+        try
+        {
+            var nid = BuildNid();
+            bool ok = Shell_NotifyIcon(NIM_MODIFY, ref nid);
+            Log($"NIM_MODIFY -> {ok} (err={Marshal.GetLastWin32Error()}, fallback={_iconIsFallback})");
+        }
+        catch { }
+    }
+
+    /// <summary>用 ExtractIconEx 从 ico 文件或 exe 提取一个图标句柄（失败返回 IntPtr.Zero）。</summary>
+    private static IntPtr ExtractIconFromFile(string path, bool preferSmall)
+    {
+        try
+        {
+            var large = new IntPtr[1];
+            var small = new IntPtr[1];
+            uint n = ExtractIconEx(path, 0, large, small, 1);
+            if (n > 0)
+            {
+                IntPtr main = preferSmall ? small[0] : large[0];
+                IntPtr other = preferSmall ? large[0] : small[0];
+                if (main != IntPtr.Zero)
+                {
+                    if (other != IntPtr.Zero) { try { DestroyIcon(other); } catch { } }
+                    return main;
+                }
+                if (other != IntPtr.Zero) return other;
+            }
+        }
+        catch { }
+        return IntPtr.Zero;
+    }
+
     // ---------- Win32 定义 ----------
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -353,6 +455,13 @@ public static class TrayIconService
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadIcon(IntPtr hInstance, IntPtr lpIconName);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint ExtractIconEx(string lpszFile, int nIconIndex,
+        IntPtr[] phiconLarge, IntPtr[] phiconSmall, uint nIcons);
 
     [DllImport("user32.dll")]
     private static extern IntPtr CreatePopupMenu();
