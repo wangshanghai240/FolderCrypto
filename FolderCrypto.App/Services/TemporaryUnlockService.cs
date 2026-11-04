@@ -20,9 +20,9 @@ namespace FolderCrypto.App.Services;
 public static class TemporaryUnlockService
 {
     // 文件：占用程序关闭后再多等一会确认空闲，避免误触发
-    private static readonly TimeSpan FileGracePeriod = TimeSpan.FromSeconds(30);
-    // 文件夹：可能含音视频等正在播放的内容，空闲确认窗口设几分钟
-    private static readonly TimeSpan FolderGracePeriod = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan FileGracePeriod = TimeSpan.FromSeconds(20);
+    // 文件夹：
+    private static readonly TimeSpan FolderGracePeriod = TimeSpan.FromSeconds(20);
     // 超时兜底：仅当未被占用且超时时才强制重新加密（绝不中断正在播放的内容）
     private static readonly TimeSpan MaxTtl = TimeSpan.FromMinutes(30);
     private const int PollMs = 1500;
@@ -129,7 +129,7 @@ public static class TemporaryUnlockService
     /// 若马上重新加密，用户随后保存就会把明文写到密文上，造成文件损坏。
     /// 因此在「检测到曾有过占用、随后变为空闲」时，额外等待这段时间再加密。
     /// </summary>
-    private static readonly TimeSpan HandleReleaseProtection = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan HandleReleaseProtection = TimeSpan.FromSeconds(20);
 
     /// <summary>
     /// 监测循环的硬性存活上限。超过此后即便文件仍被占用也会停止监测，
@@ -364,7 +364,9 @@ public static class TemporaryUnlockService
             // 这一条能可靠识别「正在播放」，而句柄检测做不到（轮询总落在读取间隙里）。
             bool accessedRecently = IsAccessStillActive(path);
 
-            if (inUse || accessedRecently)
+            // 仅“确实有句柄占用”才阻断（独占打开能可靠检测播放/占用）；
+            // 访问时间不可靠（Defender/索引器持续读取会一直刷新），不再作为阻断条件。
+            if (inUse)
             {
                 if (inUse) everInUse = true;
                 if (accessedRecently) everInUse = true;
@@ -397,7 +399,7 @@ public static class TemporaryUnlockService
 
             // 兜底：超时强制加密也必须同时满足「无句柄 + 未在读取」，
             // 否则「播放中恰好落在读取间隙」仍会被误加密。
-            if (!inUse && !accessedRecently
+            if (!inUse
                 && consecutiveIdle >= RequiredConsecutiveIdlePolls
                 && DateTime.UtcNow - started >= MaxTtl)
             {
@@ -441,7 +443,7 @@ public static class TemporaryUnlockService
                 }
             }
 
-            if (inUse || accessedRecently)
+            if (inUse)
             {
                 everInUse = true;
                 consecutiveIdle = 0;
@@ -466,8 +468,8 @@ public static class TemporaryUnlockService
                 }
             }
 
-            // 兜底：超时强制加密同样要求「无句柄 + 未在读取」
-            if (files != null && !inUse && !accessedRecently
+            // 兜底：超时强制加密同样要求「无句柄」
+            if (files != null && !inUse
                 && consecutiveIdle >= RequiredConsecutiveIdlePolls
                 && DateTime.UtcNow - started >= MaxTtl)
             {
